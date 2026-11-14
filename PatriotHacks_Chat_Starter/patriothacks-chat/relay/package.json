@@ -1,0 +1,1 @@
+{"name":"relay","private":true,"type":"module","scripts":{"dev":"node --import tsx index.ts","check":"tsc --noEmit --strict --target es2022 --module nodenext index.ts"},"dependencies":{"@patriot/protocol":"1.0.0","express":"^5.1.0","socket.io":"^4.8.1","tweetnacl":"^1.0.3"},"devDependencies":{"@types/express":"^5.0.0","@types/node":"^22.0.0","tsx":"^4.20.0"}}
