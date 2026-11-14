@@ -1,0 +1,172 @@
+const { createServer } = require('node:http');
+const { buildSync } = require('esbuild');
+
+const relay = 'http://127.0.0.1:' + (process.env.PATRIOT_RELAY_PORT || '3000');
+const browserCode = buildSync({
+  bundle: true,
+  write: false,
+  platform: 'browser',
+  stdin: {
+    resolveDir: __dirname,
+    sourcefile: 'browser-chat.js',
+    contents: String.raw`
+import { io } from 'socket.io-client';
+import nacl from 'tweetnacl';
+import { events, isEnvelope, isPublicKey } from './shared/index.ts';
+
+const field = (id) => document.getElementById(id);
+const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+const base64 = (data) => btoa(String.fromCharCode(...data));
+nacl.setPRNG((buffer, length) => buffer.set(crypto.getRandomValues(new Uint8Array(length))));
+const keys = nacl.box.keyPair();
+const ownKey = base64(keys.publicKey);
+field('public-key').value = ownKey;
+let authenticated = false;
+const seen = new Set();
+const socket = io(` + JSON.stringify(relay) + String.raw`, {
+  transports: ['websocket'],
+  auth: { publicKey: ownKey },
+});
+
+function status(online, message) {
+  authenticated = online;
+  field('status').textContent = message;
+  field('send').disabled = !online;
+}
+
+socket.on('disconnect', () => status(false, 'Relay offline'));
+socket.on('connect_error', () => status(false, 'Cannot reach the relay. Check that it is running.'));
+socket.on(events.challenge, async (challenge) => {
+  const connection = socket.id;
+  try {
+    const proof = nacl.box.open(bytes(challenge.ciphertext), bytes(challenge.nonce),
+      bytes(challenge.publicKey), keys.secretKey);
+    if (!proof || proof.length !== 32) throw new Error('Invalid relay challenge');
+    const ack = await socket.timeout(5000).emitWithAck(events.authenticate, base64(proof));
+    if (!ack.ok) throw new Error(ack.error);
+    if (socket.id === connection) status(true, 'Relay connected');
+  } catch (error) {
+    if (socket.id === connection) status(false, error.message);
+  }
+});
+
+function show(label, text) {
+  const line = document.createElement('li');
+  line.textContent = label + ': ' + text;
+  field('messages').append(line);
+  line.scrollIntoView({ block: 'nearest' });
+}
+
+socket.on(events.receive, (message) => {
+  if (!isEnvelope(message) || message.to !== ownKey) return;
+  try {
+    const plaintext = nacl.box.open(bytes(message.ciphertext), bytes(message.nonce),
+      bytes(message.from), keys.secretKey);
+    if (!plaintext) return;
+    const body = JSON.parse(new TextDecoder().decode(plaintext));
+    if (body.id !== message.id || body.from !== message.from || body.to !== message.to ||
+        body.sentAt !== message.sentAt || typeof body.text !== 'string') return;
+    const deliveryId = message.from + ':' + message.id;
+    if (!seen.has(deliveryId)) {
+      show('From ' + message.from.slice(0, 10) + '…', body.text);
+      seen.add(deliveryId);
+    }
+    socket.emit(events.received, message.from, message.id);
+  } catch {
+    field('error').textContent = 'Could not read an incoming message.';
+  }
+});
+
+field('chat').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!authenticated || field('send').disabled) return;
+  field('error').textContent = '';
+  const to = field('recipient').value.trim();
+  const draft = field('draft');
+  const text = draft.value.trim();
+  if (!isPublicKey(to) || to === ownKey) {
+    field('error').textContent = 'Paste the other device’s public key.';
+    return;
+  }
+  if (!text) return;
+  field('send').disabled = true;
+  try {
+    const id = crypto.randomUUID();
+    const sentAt = Date.now();
+    const nonce = nacl.randomBytes(nacl.box.nonceLength);
+    const plaintext = new TextEncoder().encode(JSON.stringify({ id, from: ownKey, to, sentAt, text }));
+    const ciphertext = nacl.box(plaintext, nonce, bytes(to), keys.secretKey);
+    const message = { v: 1, id, from: ownKey, to, sentAt, nonce: base64(nonce), ciphertext: base64(ciphertext) };
+    const ack = await socket.timeout(5000).emitWithAck(events.send, message);
+    if (!ack.ok) throw new Error(ack.error);
+    show('You', text);
+    if (draft.value.trim() === text) draft.value = '';
+  } catch (error) {
+    field('error').textContent = error.message;
+  } finally {
+    field('send').disabled = !authenticated;
+  }
+});
+
+field('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(ownKey);
+    field('copy').textContent = 'Copied';
+  } catch {
+    field('public-key').select();
+  }
+});
+`,
+  },
+}).outputFiles[0].text;
+
+const page = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PatriotHacks Chat</title>
+<style>
+*{box-sizing:border-box}
+body{background:#101822;color:#edf3fa;font:16px system-ui;margin:0}
+main{max-width:680px;margin:6vh auto;padding:24px}
+h1{margin:0}p{color:#b9c9d9}
+label{display:block;margin:16px 0 6px}
+input,textarea,button{font:inherit;padding:10px;border:1px solid #52667b;border-radius:6px}
+input,textarea{background:#1f2d3c;color:inherit;width:100%}
+button{background:#a6e6ce;color:#102624;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.key{display:flex;gap:8px}
+ul{min-height:120px;max-height:40vh;overflow:auto;padding:12px 12px 12px 32px;background:#172230;border-radius:6px}
+li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
+#error{color:#ffbaad}
+</style>
+<main>
+<h1>PatriotHacks Chat</h1>
+<p id="status" role="status">Connecting to relay…</p>
+<label for="public-key">Your public key</label>
+<div class="key"><input id="public-key" readonly><button id="copy" type="button">Copy</button></div>
+<p>Reloading this tab creates a new key and clears the chat.</p>
+<form id="chat">
+<label for="recipient">Recipient public key</label>
+<input id="recipient" spellcheck="false" autocomplete="off" required>
+<ul id="messages" aria-label="Messages" aria-live="polite"></ul>
+<label for="draft">Message</label>
+<textarea id="draft" rows="3" maxlength="2000" required></textarea>
+<p id="error" role="alert"></p>
+<button id="send" disabled>Send</button>
+</form>
+</main>
+<script src="/browser-chat.js" defer></script>
+</html>`;
+
+createServer((request, response) => {
+  if (request.url === '/') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(page);
+  } else if (request.url === '/browser-chat.js') {
+    response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }).end(browserCode);
+  } else {
+    response.writeHead(404).end();
+  }
+}).listen(4173, '127.0.0.1', () => {
+  console.log('Open http://localhost:4173 in your browser. Leave this terminal open.');
+});
