@@ -103,3 +103,43 @@ export function parseLevelReport(answers: ReportAnswers, temperature: string): L
   }
   return report;
 }
+
+const responseColors = ['#60a5fa', '#fbbf24', '#f87171', '#a78bfa'];
+
+export function reportPie(counts: readonly number[]) {
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  let end = 0;
+  return counts.flatMap((count, index) => {
+    if (!count || !total) return [];
+    const start = end;
+    const fraction = count / total;
+    end += fraction * 360;
+    return [{ index, count, color: responseColors[index] ?? '#34d399',
+      start, end, percent: Math.round(fraction * 100) }];
+  });
+}
+
+export interface ChatProfile {
+  name: string;
+  level: Room;
+}
+
+export type ChatProfiles = Record<string, ChatProfile>;
+export const profileEvents = {
+  snapshot: 'profile:snapshot',
+  changed: 'profile:changed',
+  save: 'profile:save',
+} as const;
+
+export function parseChatProfile(input: unknown): ChatProfile | undefined {
+  if (!input || typeof input !== 'object') return;
+  const { name, level } = input as Partial<ChatProfile>;
+  if (typeof name !== 'string' || !isRoom(level)) return;
+  const displayName = name.trim();
+  if (!displayName || displayName.length > 40 || /[\x00-\x1f\x7f]/.test(displayName)) return;
+  return { name: displayName, level };
+}
+
+export function profileLabel(profile: ChatProfile) {
+  return profile.name + ' · ' + profile.level;
+}

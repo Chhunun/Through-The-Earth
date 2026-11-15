@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { events, isEnvelope, reportEvents, roomEvents, type LevelReport, type LevelReportResult, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
+import { events, isEnvelope, profileEvents, reportEvents, type ChatProfile, type ChatProfiles, roomEvents, type LevelReport, type LevelReportResult, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
 import { proveIdentity } from './crypto';
 
 export function connectRelay(
@@ -7,6 +7,7 @@ export function connectRelay(
   key: string,
   onMessage: (message: Envelope) => Promise<void>,
   onRoomMessage: (message: RoomMessage) => void,
+  onProfiles: (profiles: ChatProfiles, replace: boolean) => void,
   onStatus: (online: boolean, error?: string) => void,
 ) {
   const socket = io(url, { auth: { publicKey: key }, autoConnect: false });
@@ -46,12 +47,20 @@ export function connectRelay(
     }
   });
   socket.on(roomEvents.message, onRoomMessage);
+  socket.on(profileEvents.snapshot, (profiles: ChatProfiles) => onProfiles(profiles, true));
+  socket.on(profileEvents.changed, (key: string, profile: ChatProfile) =>
+    onProfiles({ [key]: profile }, false));
   socket.connect();
 
   return {
     close() {
       socket.removeAllListeners();
       socket.disconnect();
+    },
+    async saveProfile(profile: ChatProfile) {
+      if (!authenticated || !socket.connected) throw new Error('Relay is offline');
+      const ack: Ack = await socket.timeout(5000).emitWithAck(profileEvents.save, profile);
+      if (!ack.ok) throw new Error(ack.error);
     },
     async levelReport(room: Room, report?: LevelReport) {
       if (!authenticated || !socket.connected) throw new Error('Relay is offline');

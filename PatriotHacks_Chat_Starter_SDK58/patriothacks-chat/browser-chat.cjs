@@ -12,17 +12,78 @@ const browserCode = buildSync({
     contents: String.raw`
 import { io } from 'socket.io-client';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, rooms, roomEvents, parseLevelReport, reportEvents, reportQuestions } from './shared/index.ts';
+import { events, isEnvelope, isPublicKey, parseChatProfile, profileEvents, profileLabel, rooms, roomEvents, parseLevelReport, reportEvents, reportPie, reportQuestions } from './shared/index.ts';
 
 const field = (id) => document.getElementById(id);
 const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 const base64 = (data) => btoa(String.fromCharCode(...data));
 nacl.setPRNG((buffer, length) => buffer.set(crypto.getRandomValues(new Uint8Array(length))));
-const keys = nacl.box.keyPair();
+function browserIdentity() {
+  const slot = 'patriothacks.identity.v1';
+  try {
+    const stored = localStorage.getItem(slot);
+    if (stored) return nacl.box.keyPair.fromSecretKey(bytes(stored));
+  } catch {}
+  const pair = nacl.box.keyPair();
+  try {
+    localStorage.setItem(slot, base64(pair.secretKey));
+  } catch {
+    field('identity-note').textContent = 'Browser storage is unavailable. Your identity lasts until you reload.';
+  }
+  return pair;
+}
+const keys = browserIdentity();
 const ownKey = base64(keys.publicKey);
 field('public-key').value = ownKey;
 let authenticated = false;
 const seen = new Set();
+let profiles = {};
+let savingProfile = false;
+const homeLevel = field('home-level');
+for (const room of rooms) homeLevel.add(new Option(room, room));
+
+function authorLabel(key, fallback) {
+  const profile = profiles[key];
+  return profile ? profileLabel(profile) : fallback;
+}
+
+function updateProfileSummary() {
+  field('profile-title').textContent = authorLabel(ownKey, 'Set up profile');
+  if (selectedRoom) renderRoom();
+  else renderDirect();
+  if (reportOpen) renderReports();
+}
+
+field('profile-details').addEventListener('toggle', () => {
+  if (!field('profile-details').open) return;
+  const profile = profiles[ownKey];
+  field('display-name').value = profile?.name ?? '';
+  homeLevel.value = profile?.level ?? '';
+  field('profile-status').textContent = '';
+});
+
+field('profile-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!authenticated || savingProfile) return;
+  const profile = parseChatProfile({ name: field('display-name').value, level: homeLevel.value });
+  if (!profile) {
+    field('profile-status').textContent = 'Enter a display name of 1–40 characters and choose a home level.';
+    return;
+  }
+  savingProfile = true;
+  field('save-profile').disabled = true;
+  field('profile-status').textContent = '';
+  try {
+    const ack = await socket.timeout(5000).emitWithAck(profileEvents.save, profile);
+    if (!ack.ok) throw new Error(ack.error);
+    field('profile-details').open = false;
+  } catch (error) {
+    field('profile-status').textContent = error.message;
+  } finally {
+    savingProfile = false;
+    field('save-profile').disabled = !authenticated;
+  }
+});
 const channelButtons = new Map();
 for (const channel of [...rooms, '']) {
   const button = document.createElement('button');
@@ -41,13 +102,52 @@ let reportRequest = 0;
 let recentReports = [];
 let visibleReports = 5;
 
+function renderCharts(summary) {
+  const charts = field('poll-charts');
+  charts.replaceChildren();
+  field('poll-results').hidden = !summary;
+  if (!summary) return;
+  field('poll-empty').hidden = summary.reports !== 0;
+  field('poll-temperature').textContent = summary.temperatureCount
+    ? 'Average measured temperature · ' + summary.averageTemperatureF.toFixed(1) +
+      ' °F (' + summary.temperatureCount + ' readings)'
+    : '';
+  for (const { id, label, choices } of reportQuestions) {
+    const slices = reportPie(summary.counts[id]);
+    if (!slices.length) continue;
+    const card = document.createElement('article');
+    const title = document.createElement('strong');
+    title.textContent = label;
+    const details = document.createElement('div');
+    details.className = 'pie-details';
+    const pie = document.createElement('div');
+    pie.className = 'poll-pie';
+    pie.setAttribute('aria-hidden', 'true');
+    pie.style.background = 'conic-gradient(' + slices
+      .map(({ color, start, end }) => color + ' ' + start + 'deg ' + end + 'deg')
+      .join(',') + ')';
+    const legend = document.createElement('div');
+    for (const { index, color, count, percent } of slices) {
+      const row = document.createElement('div');
+      const swatch = document.createElement('span');
+      swatch.className = 'pie-swatch';
+      swatch.style.backgroundColor = color;
+      row.append(swatch, choices[index] + ' · ' + count + ' (' + percent + '%)');
+      legend.append(row);
+    }
+    details.append(pie, legend);
+    card.append(title, details);
+    charts.append(card);
+  }
+}
+
 function renderReports() {
   const list = field('report-feed');
   list.replaceChildren();
   for (const report of recentReports.slice(0, visibleReports)) {
     const card = document.createElement('article');
     const who = document.createElement('strong');
-    who.textContent = report.reporter === ownKey ? 'You' : 'Reporter';
+    who.textContent = authorLabel(report.reporter, report.reporter === ownKey ? 'You' : 'Reporter');
     const key = document.createElement('code');
     key.textContent = report.reporter;
     const date = document.createElement('time');
@@ -92,13 +192,13 @@ function selectTab(announcements) {
     field('report-status').textContent = '';
     field('report-count').textContent = '';
     field('empty-reports').hidden = true;
+    renderCharts();
     recentReports = [];
     visibleReports = 5;
     renderReports();
     field('temperature').value = '';
     for (const select of questions.values()) {
       select.value = '';
-      for (const option of [...select.options].slice(1)) option.textContent = option.value;
     }
     void updateReport({ hydrate: true });
   }
@@ -121,18 +221,15 @@ async function updateReport({ submit = false, hydrate = false } = {}) {
     if (requestId !== reportRequest) return;
     if (!result.ok) throw new Error(result.error);
     const { summary, own, recent } = result.view;
+    renderCharts(summary);
     recentReports = recent;
     field('empty-reports').hidden = !!recent.length;
     renderReports();
     for (const [id, select] of questions) {
       if (hydrate) select.value = own.answers[id] ?? '';
-      for (const [index, option] of [...select.options].slice(1).entries()) {
-        option.textContent = option.value + ' · ' + summary.counts[id][index];
-      }
     }
     if (hydrate) field('temperature').value = own.temperatureF ?? '';
-    field('report-count').textContent = summary.reports + ' reports' +
-      (summary.temperatureCount ? ' · Average ' + summary.averageTemperatureF.toFixed(1) + ' °F (' + summary.temperatureCount + ' readings)' : '');
+    field('report-count').textContent = summary.reports + ' reports';
     if (submit) field('report-status').textContent = 'Report saved.';
   } catch (error) {
     if (requestId === reportRequest) field('report-status').textContent = error.message;
@@ -159,7 +256,7 @@ function renderRoom() {
   field('messages').replaceChildren();
   const messages = roomMessages.get(selectedRoom) ?? [];
   for (const message of messages) {
-    show(message.from === ownKey ? 'You' : 'From ' + message.from.slice(0, 10) + '…', message.text);
+    show(authorLabel(message.from, message.from === ownKey ? 'You' : 'From ' + message.from.slice(0, 10) + '…'), message.text);
   }
 }
 
@@ -181,9 +278,16 @@ async function loadRoom(room) {
   }
 }
 
-function showDirect(label, text) {
-  directMessages.push({ label, text });
-  if (!selectedRoom) show(label, text);
+function showDirect(key, text) {
+  directMessages.push({ key, text });
+  if (!selectedRoom) show(authorLabel(key, key === ownKey ? 'You' : 'From ' + key.slice(0, 10) + '…'), text);
+}
+
+function renderDirect() {
+  field('messages').replaceChildren();
+  for (const { key, text } of directMessages) {
+    show(authorLabel(key, key === ownKey ? 'You' : 'From ' + key.slice(0, 10) + '…'), text);
+  }
 }
 
 function selectChannel(channel) {
@@ -201,10 +305,7 @@ function selectChannel(channel) {
   field('draft').value = '';
   field('error').textContent = '';
   if (selectedRoom) renderRoom();
-  else {
-    field('messages').replaceChildren();
-    for (const { label, text } of directMessages) show(label, text);
-  }
+  else renderDirect();
   void loadRoom(selectedRoom);
 }
 const socket = io(` + JSON.stringify(relay) + String.raw`, {
@@ -216,8 +317,18 @@ function status(online, message) {
   authenticated = online;
   field('status').textContent = message;
   field('send').disabled = !online;
+  field('save-profile').disabled = !online || savingProfile;
   field('report-fields').disabled = !online;
 }
+
+socket.on(profileEvents.snapshot, (snapshot) => {
+  profiles = snapshot;
+  updateProfileSummary();
+});
+socket.on(profileEvents.changed, (key, profile) => {
+  profiles[key] = profile;
+  updateProfileSummary();
+});
 
 socket.on('disconnect', () => status(false, 'Relay offline'));
 socket.on('connect_error', () => status(false, 'Cannot reach the relay. Check that it is running.'));
@@ -259,7 +370,7 @@ socket.on(events.receive, (message) => {
         body.sentAt !== message.sentAt || typeof body.text !== 'string') return;
     const deliveryId = message.from + ':' + message.id;
     if (!seen.has(deliveryId)) {
-      showDirect('From ' + message.from.slice(0, 10) + '…', body.text);
+      showDirect(message.from, body.text);
       seen.add(deliveryId);
     }
     socket.emit(events.received, message.from, message.id);
@@ -297,7 +408,7 @@ field('chat').addEventListener('submit', async (event) => {
     const message = { v: 1, id, from: ownKey, to, sentAt, nonce: base64(nonce), ciphertext: base64(ciphertext) };
     const ack = await socket.timeout(5000).emitWithAck(events.send, message);
     if (!ack.ok) throw new Error(ack.error);
-    showDirect('You', text);
+    showDirect(ownKey, text);
     if (!selectedRoom && draft.value.trim() === text) draft.value = '';
   } catch (error) {
     field('error').textContent = error.message;
@@ -347,6 +458,11 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 #error{color:#ffbaad}
 #level-tabs button{background:#36363d;color:white;margin-right:6px}
 #level-tabs button[aria-pressed="true"]{background:#a6e6ce;color:#102624}
+#poll-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+#poll-charts article{background:#303036;border-radius:8px;padding:12px}
+.pie-details{display:flex;align-items:center;gap:12px;margin-top:8px;font-size:.9rem}
+.poll-pie{width:96px;height:96px;border-radius:50%;flex:none}
+.pie-swatch{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 #report-feed{display:grid;gap:8px;margin:12px 0}
 #report-feed article{display:grid;gap:5px;background:#303036;padding:12px;border-radius:8px}
 #report-feed code{overflow-wrap:anywhere;color:#d4d4d8}
@@ -362,9 +478,20 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <main>
 <h2 id="channel-title">Direct chat</h2>
 <p id="status" role="status">Connecting to relay…</p>
+<details id="profile-details">
+<summary id="profile-title">Set up profile</summary>
+<form id="profile-form">
+<label for="display-name">Display name</label>
+<input id="display-name" maxlength="40" required>
+<label for="home-level">Home level</label>
+<select id="home-level" required><option value="">Choose a level</option></select>
+<p id="profile-status" role="status"></p>
+<button type="submit" id="save-profile" disabled>Save profile</button>
+</form>
+</details>
 <label for="public-key">Your public key</label>
 <div class="key"><input id="public-key" readonly><button id="copy" type="button">Copy</button></div>
-<p>Reloading this tab creates a new key and clears the chat.</p>
+<p id="identity-note">This browser profile keeps your chat identity on this PC.</p>
 <div id="level-tabs" hidden>
 <button type="button" id="chat-tab" aria-pressed="true">Chat</button>
 <button type="button" id="announcements-tab" aria-pressed="false">Announcements</button>
@@ -373,6 +500,12 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <h3>Level conditions</h3>
 <p>Share what you observed. Submitting replaces your previous report for this level.</p>
 <fieldset id="report-fields" disabled>
+<section id="poll-results" hidden>
+<h4>Poll results</h4>
+<p id="poll-empty" hidden>No responses for this level yet.</p>
+<div id="poll-charts"></div>
+<p id="poll-temperature"></p>
+</section>
 <h4>Submitted reports</h4>
 <p>Reports are visible with your public chat ID.</p>
 <button type="button" id="refresh-report">Refresh reports</button>

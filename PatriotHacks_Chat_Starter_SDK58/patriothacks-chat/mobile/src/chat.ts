@@ -2,16 +2,17 @@ import { create } from 'zustand';
 import { decryptMessage, encryptMessage, publicKey } from './crypto';
 import { history, save } from './storage';
 import { connectRelay } from './transport';
-import type { Envelope, Room, RoomMessage } from '@patriot/protocol';
+import type { ChatProfiles, Envelope, Room, RoomMessage } from '@patriot/protocol';
 
 type Message = Envelope & { text: string };
 export const useChat = create<{
   key: string;
+  profiles: ChatProfiles;
   online: boolean;
   relayError: string;
   messages: Message[];
   roomMessages: Partial<Record<Room, RoomMessage[]>>;
-}>(() => ({ key: '', online: false, relayError: '', messages: [], roomMessages: {} }));
+}>(() => ({ key: '', profiles: {}, online: false, relayError: '', messages: [], roomMessages: {} }));
 
 async function display(envelope: Envelope) {
   const message = { ...envelope, text: await decryptMessage(envelope) };
@@ -49,13 +50,18 @@ export async function startChat(isActive: () => boolean) {
     useChat.setState({ relayError: 'Set EXPO_PUBLIC_RELAY_URL in mobile/.env' });
     return;
   }
-  const relay = connectRelay(url, key, display, (message) => mergeRoom(message.room, [], message), (online, error) => {
+  const relay = connectRelay(url, key, display, (message) => mergeRoom(message.room, [], message),
+    (profiles, replace) => useChat.setState((state) => ({
+      profiles: replace ? profiles : { ...state.profiles, ...profiles },
+    })),
+    (online, error) => {
     useChat.setState({ online, relayError: error ?? '' });
   });
   return {
     close: relay.close,
     sendRoom: relay.sendRoom,
     levelReport: relay.levelReport,
+    saveProfile: relay.saveProfile,
     async loadRoom(room: Room) {
       mergeRoom(room, await relay.roomHistory(room));
     },

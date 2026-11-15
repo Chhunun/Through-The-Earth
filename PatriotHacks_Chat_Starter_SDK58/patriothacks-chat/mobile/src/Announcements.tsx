@@ -1,14 +1,16 @@
+import ReportCharts from './ReportCharts';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { parseLevelReport, reportQuestions, type LevelReport, type LevelReportView } from '@patriot/protocol';
+import { parseLevelReport, profileLabel, type ChatProfiles, reportQuestions, type LevelReport, type LevelReportView } from '@patriot/protocol';
 
 type Props = {
   online: boolean;
   ownKey: string;
+  profiles: ChatProfiles;
   load: (report?: LevelReport) => Promise<LevelReportView>;
 };
 
-export default function Announcements({ online, ownKey, load }: Props) {
+export default function Announcements({ online, ownKey, profiles, load }: Props) {
   const [view, setView] = useState<LevelReportView>();
   const [answers, setAnswers] = useState<LevelReport['answers']>({});
   const [temperature, setTemperature] = useState('');
@@ -55,6 +57,7 @@ export default function Announcements({ online, ownKey, load }: Props) {
       <Text className="text-zinc-300">
         Share what you observed. Tap a selected answer again to clear it. Submitting replaces your previous report for this level.
       </Text>
+      {view ? <ReportCharts summary={view.summary} /> : null}
       <View className="gap-2">
         <View className="flex-row flex-wrap items-center justify-between gap-2">
           <Text className="text-lg font-semibold text-white">Submitted reports</Text>
@@ -63,11 +66,11 @@ export default function Announcements({ online, ownKey, load }: Props) {
             <Text className="text-white">Refresh reports</Text>
           </Pressable>
         </View>
-        <Text className="text-zinc-400">Reports are visible with your public chat ID.</Text>
+        <Text className="text-zinc-400">Reports are visible with your profile and public chat ID.</Text>
         {view && view.recent.length === 0 ? <Text className="text-zinc-300">No reports for this level yet.</Text> : null}
         {view?.recent.slice(0, visibleReports).map((report) => (
           <View key={report.reporter} className="gap-1 rounded-lg bg-zinc-800 p-3">
-            <Text className="font-semibold text-white">{report.reporter === ownKey ? 'You' : 'Reporter'}</Text>
+            <Text className="font-semibold text-white">{profiles[report.reporter] ? profileLabel(profiles[report.reporter]) : report.reporter === ownKey ? 'You' : 'Reporter'}</Text>
             <Text selectable className="text-xs text-zinc-300">{report.reporter}</Text>
             <Text className="text-xs text-zinc-400">{new Date(report.submittedAt).toLocaleString()}</Text>
             {reportQuestions.map(({ id, label }) => report.answers[id]
@@ -90,7 +93,7 @@ export default function Announcements({ online, ownKey, load }: Props) {
         <View key={id} className="gap-2">
           <Text className="font-semibold text-white">{label}</Text>
           <View className="flex-row flex-wrap gap-2">
-            {choices.map((choice, index) => {
+            {choices.map((choice) => {
               const selected = answers[id] === choice;
               return (
                 <Pressable key={choice} accessibilityRole="button" accessibilityState={{ selected }}
@@ -102,7 +105,7 @@ export default function Announcements({ online, ownKey, load }: Props) {
                     else next[id] = choice;
                     return next;
                   })}>
-                  <Text className="text-white">{choice}{view ? ' · ' + view.summary.counts[id][index] : ''}</Text>
+                  <Text className="text-white">{choice}</Text>
                 </Pressable>
               );
             })}
@@ -114,7 +117,6 @@ export default function Announcements({ online, ownKey, load }: Props) {
         className="rounded-lg bg-zinc-800 p-3 text-white" value={temperature} onChangeText={setTemperature} />
       {view ? <Text className="text-zinc-300">
         {view.summary.reports} reports
-        {view.summary.temperatureCount ? ' · Average ' + view.summary.averageTemperatureF?.toFixed(1) + ' °F (' + view.summary.temperatureCount + ' readings)' : ''}
       </Text> : null}
       <View className="flex-row flex-wrap gap-2">
         <Pressable accessibilityRole="button" disabled={!online || busy} onPress={() => update(true)}

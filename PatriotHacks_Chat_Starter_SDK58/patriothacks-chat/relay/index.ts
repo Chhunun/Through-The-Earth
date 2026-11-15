@@ -1,10 +1,11 @@
+import { profiles, storeProfile } from './profiles.js';
 import { validateReport, saveReport, readReports } from './reports.js';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { Server } from 'socket.io';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, isRoom, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
+import { events, isEnvelope, isPublicKey, isRoom, parseChatProfile, profileEvents, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 const app = express();
 app.get('/health', (_request, response) => response.json({ ok: true }));
@@ -47,6 +48,7 @@ io.on('connection', (socket) => {
     await socket.join([room(key), "room-readers"]);
     authenticated = true;
     reply({ ok: true });
+    socket.emit(profileEvents.snapshot, profiles);
     for (const message of pending.get(key)?.values() ?? []) socket.emit(events.receive, message);
   });
 
@@ -71,6 +73,26 @@ io.on('connection', (socket) => {
     pending.set(message.to, mailbox);
     io.to(room(message.to)).emit(events.receive, message);
     reply({ ok: true });
+  });
+
+  socket.on(profileEvents.save, (input: unknown, reply: (ack: Ack) => void) => {
+    if (typeof reply !== 'function') return;
+    const profile = parseChatProfile(input);
+    if (!authenticated || !profile) {
+      reply({ ok: false, error: 'Enter a display name of 1–40 characters and choose a home level.' });
+      return;
+    }
+    try {
+      if (!storeProfile(key, profile)) {
+        reply({ ok: false, error: 'The relay has reached its profile limit.' });
+        return;
+      }
+      io.to('room-readers').emit(profileEvents.changed, key, profile);
+      reply({ ok: true });
+    } catch (error) {
+      console.error('Could not save profile:', error);
+      reply({ ok: false, error: 'The relay could not save your profile.' });
+    }
   });
 
   socket.on(reportEvents.read, (requested: unknown, reply: (result: LevelReportResult) => void) => {

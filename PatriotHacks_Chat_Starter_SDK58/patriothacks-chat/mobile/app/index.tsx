@@ -1,15 +1,17 @@
+import ProfileEditor from '../src/ProfileEditor';
 import Announcements from '../src/Announcements';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, Share, Text, TextInput, View } from 'react-native';
-import { isPublicKey, rooms, type Room, type RoomMessage, type LevelReport } from '@patriot/protocol';
+import { isPublicKey, profileLabel, rooms, type ChatProfile, type Room, type RoomMessage, type LevelReport } from '@patriot/protocol';
 import { startChat, useChat } from '../src/chat';
 
 export default function ChatScreen() {
-  const { key, online, relayError, messages, roomMessages } = useChat();
+  const { key, online, relayError, messages, roomMessages, profiles } = useChat();
   const session = useRef<Awaited<ReturnType<typeof startChat>>>(undefined);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [room, setRoom] = useState<Room>();
   const [peer, setPeer] = useState('');
   const [draft, setDraft] = useState('');
@@ -63,6 +65,13 @@ export default function ChatScreen() {
     return session.current.levelReport(room, report);
   }, [room]);
 
+  const profile = profiles[key];
+
+  async function saveProfile(next: ChatProfile) {
+    if (!session.current) throw new Error('Relay is offline');
+    await session.current.saveProfile(next);
+  }
+
   const canSend = online && (room !== undefined || validPeer) && draft.trim().length > 0 && !sending;
 
   return (
@@ -82,6 +91,15 @@ export default function ChatScreen() {
             {room ? '# ' + room : 'Direct chat'}
           </Text>
         </View>
+        {editingProfile ? (
+          <ProfileEditor profile={profile} online={online} save={saveProfile}
+            close={() => setEditingProfile(false)} />
+        ) : (
+          <Pressable accessibilityRole="button" accessibilityLabel="Edit chat profile"
+            onPress={() => setEditingProfile(true)} className="self-start rounded-md bg-zinc-800 px-3 py-2">
+            <Text className="text-zinc-100">{profile ? profileLabel(profile) : 'Set up profile'}</Text>
+          </Pressable>
+        )}
         <Modal visible={channelsOpen} transparent animationType="fade"
           onRequestClose={() => setChannelsOpen(false)}>
           <View className="flex-1 flex-row bg-black/60">
@@ -139,7 +157,7 @@ export default function ChatScreen() {
           value={peer} onChangeText={setPeer} className="rounded-lg bg-slate-800 p-3 text-white" />
         </>}
       </View>
-      {room && announcements ? <Announcements key={room} online={online} ownKey={key} load={loadReport} /> : <>
+      {room && announcements ? <Announcements key={room} online={online} ownKey={key} profiles={profiles} load={loadReport} /> : <>
       <FlatList<Pick<RoomMessage, "id" | "from" | "text">> className="flex-1" contentContainerStyle={{ padding: 16, gap: 10 }}
         data={thread} keyExtractor={(item) => item.from + ':' + item.id}
         ListEmptyComponent={<Text className="text-slate-400">
@@ -147,7 +165,8 @@ export default function ChatScreen() {
         </Text>}
         renderItem={({ item }) => (
           <View className={item.from === key ? 'self-end rounded-lg bg-sky-800 p-3' : 'self-start rounded-lg bg-slate-800 p-3'}>
-            {room && item.from !== key ? <Text className="text-xs text-slate-300">{item.from.slice(0, 10)}…</Text> : null}
+            {profiles[item.from] ? <Text className="text-xs text-slate-200">{profileLabel(profiles[item.from])}</Text>
+              : room && item.from !== key ? <Text className="text-xs text-slate-300">{item.from.slice(0, 10)}…</Text> : null}
             <Text selectable className="text-white">{item.text}</Text>
           </View>
         )} />
