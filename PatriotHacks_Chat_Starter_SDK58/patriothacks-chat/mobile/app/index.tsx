@@ -1,11 +1,13 @@
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, Share, Text, TextInput, View } from 'react-native';
+import { FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, Share, Text, TextInput, View } from 'react-native';
 import { isPublicKey, rooms, type Room, type RoomMessage } from '@patriot/protocol';
 import { startChat, useChat } from '../src/chat';
 
 export default function ChatScreen() {
   const { key, online, relayError, messages, roomMessages } = useChat();
   const session = useRef<Awaited<ReturnType<typeof startChat>>>(undefined);
+  const [channelsOpen, setChannelsOpen] = useState(false);
   const [room, setRoom] = useState<Room>();
   const [peer, setPeer] = useState('');
   const [draft, setDraft] = useState('');
@@ -60,21 +62,53 @@ export default function ChatScreen() {
     <KeyboardAvoidingView className="flex-1 bg-slate-950" behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
       <View className="gap-3 border-b border-slate-800 p-5">
         <Text className="text-sm text-slate-300">{online ? 'Relay connected' : 'Relay offline'}</Text>
-        <View className="flex-row flex-wrap gap-2">
-          {([undefined, ...rooms] as const).map((option) => (
-            <Pressable key={option ?? 'direct'} accessibilityRole="button"
-              accessibilityState={{ selected: room === option }}
-              className={room === option ? 'rounded-lg bg-sky-800 px-3 py-2' : 'rounded-lg bg-slate-800 px-3 py-2'}
-              onPress={() => {
-                if (room === option) return;
-                setRoom(option);
-                setDraft('');
-                setError('');
-              }}>
-              <Text className="text-white">{option ?? 'Direct chat'}</Text>
-            </Pressable>
-          ))}
+        <View className="flex-row items-center gap-3">
+          <Pressable accessibilityRole="button" accessibilityLabel="Open channels"
+            className="rounded-lg bg-zinc-800 px-3 py-3"
+            onPress={() => {
+              Keyboard.dismiss();
+              setChannelsOpen(true);
+            }}>
+            <Text className="font-semibold text-zinc-100">☰ Channels</Text>
+          </Pressable>
+          <Text className="flex-1 text-lg font-semibold text-zinc-100">
+            {room ? '# ' + room : 'Direct chat'}
+          </Text>
         </View>
+        <Modal visible={channelsOpen} transparent animationType="fade"
+          onRequestClose={() => setChannelsOpen(false)}>
+          <View className="flex-1 flex-row bg-black/60">
+            <SafeAreaView style={{ width: '76%', maxWidth: 300, backgroundColor: '#18181b' }}
+              accessibilityViewIsModal>
+              <View className="flex-row items-center justify-between px-4 py-2">
+                <Text className="font-semibold text-zinc-100">Channels</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Close channels"
+                  className="p-3" onPress={() => setChannelsOpen(false)}>
+                  <Text className="text-lg text-zinc-100">×</Text>
+                </Pressable>
+              </View>
+              <View className="gap-1 px-2">
+                {([...rooms, undefined] as const).map((option) => (
+                  <Pressable key={option ?? 'direct'} accessibilityRole="button"
+                    accessibilityState={{ selected: room === option }}
+                    className={room === option ? 'rounded-md bg-zinc-700 px-3 py-3' : 'rounded-md px-3 py-3'}
+                    onPress={() => {
+                      setChannelsOpen(false);
+                      if (room === option) return;
+                      setRoom(option);
+                      setDraft('');
+                      setError('');
+                    }}>
+                    <Text className={room === option ? 'font-semibold text-white' : 'text-zinc-400'}>
+                      {option ? '#  ' + option : 'Direct chat'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </SafeAreaView>
+            <Pressable accessible={false} className="flex-1" onPress={() => setChannelsOpen(false)} />
+          </View>
+        </Modal>
         {room ? <Text className="text-xs text-slate-300">
           Open demo room · Messages are visible to the relay.
         </Text> : <>

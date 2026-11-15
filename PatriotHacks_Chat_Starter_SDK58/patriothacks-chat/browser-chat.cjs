@@ -23,8 +23,16 @@ const ownKey = base64(keys.publicKey);
 field('public-key').value = ownKey;
 let authenticated = false;
 const seen = new Set();
-const roomPicker = field('room');
-for (const room of rooms) roomPicker.add(new Option(room, room));
+const channelButtons = new Map();
+for (const channel of [...rooms, '']) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = channel ? '#  ' + channel : 'Direct chat';
+  button.setAttribute('aria-pressed', String(!channel));
+  button.addEventListener('click', () => selectChannel(channel));
+  channelButtons.set(channel, button);
+  field('channels').append(button);
+}
 const roomMessages = new Map();
 const directMessages = [];
 let selectedRoom = '';
@@ -60,8 +68,13 @@ function showDirect(label, text) {
   if (!selectedRoom) show(label, text);
 }
 
-roomPicker.addEventListener('change', () => {
-  selectedRoom = roomPicker.value;
+function selectChannel(channel) {
+  if (channel === selectedRoom) return;
+  selectedRoom = channel;
+  for (const [name, button] of channelButtons) {
+    button.setAttribute('aria-pressed', String(name === channel));
+  }
+  field('channel-title').textContent = channel ? '# ' + channel : 'Direct chat';
   field('direct').hidden = !!selectedRoom;
   field('room-note').hidden = !selectedRoom;
   field('recipient').required = !selectedRoom;
@@ -73,7 +86,7 @@ roomPicker.addEventListener('change', () => {
     for (const { label, text } of directMessages) show(label, text);
   }
   void loadRoom(selectedRoom);
-});
+}
 const socket = io(` + JSON.stringify(relay) + String.raw`, {
   transports: ['websocket'],
   auth: { publicKey: ownKey },
@@ -191,7 +204,15 @@ const page = `<!doctype html>
 <style>
 *{box-sizing:border-box}
 body{background:#101822;color:#edf3fa;font:16px system-ui;margin:0}
-main{max-width:680px;margin:6vh auto;padding:24px}
+body{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh;background:#222226}
+aside{background:#18181b;padding:20px 10px}
+aside h1{font-size:1rem;padding:0 8px 12px}
+nav{display:grid;gap:4px}
+nav button{background:transparent;border:0;color:#a1a1aa;text-align:left}
+nav button:hover,nav button[aria-pressed="true"]{background:#36363d;color:#f4f4f5}
+nav button[aria-pressed="true"]{font-weight:600}
+main{max-width:850px;width:100%;padding:24px}
+@media(max-width:600px){body{grid-template-columns:1fr}nav{display:flex;flex-wrap:wrap}main{padding:16px}}
 h1{margin:0}p{color:#b9c9d9}
 label{display:block;margin:16px 0 6px}
 input,textarea,button,select{font:inherit;padding:10px;border:1px solid #52667b;border-radius:6px}
@@ -203,15 +224,17 @@ ul{min-height:120px;max-height:40vh;overflow:auto;padding:12px 12px 12px 32px;ba
 li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 #error{color:#ffbaad}
 </style>
-<main>
+<aside>
 <h1>PatriotHacks Chat</h1>
+<nav id="channels" aria-label="Channels"></nav>
+</aside>
+<main>
+<h2 id="channel-title">Direct chat</h2>
 <p id="status" role="status">Connecting to relay…</p>
 <label for="public-key">Your public key</label>
 <div class="key"><input id="public-key" readonly><button id="copy" type="button">Copy</button></div>
 <p>Reloading this tab creates a new key and clears the chat.</p>
 <form id="chat">
-<label for="room">Conversation</label>
-<select id="room"><option value="">Direct chat</option></select>
 <p id="room-note" hidden>Open demo room · Messages are visible to the relay.</p>
 <div id="direct">
 <label for="recipient">Recipient public key</label>
