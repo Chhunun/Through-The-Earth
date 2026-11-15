@@ -76,7 +76,12 @@ export interface LevelReportSummary {
   averageTemperatureF?: number;
   temperatureCount: number;
 }
+export interface PublishedLevelReport extends LevelReport {
+  reporter: string;
+  submittedAt: number;
+}
 export interface LevelReportView {
+  recent: PublishedLevelReport[];
   summary: LevelReportSummary;
   own: LevelReport;
 }

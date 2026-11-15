@@ -38,6 +38,37 @@ const directMessages = [];
 let selectedRoom = '';
 let reportOpen = false;
 let reportRequest = 0;
+let recentReports = [];
+let visibleReports = 5;
+
+function renderReports() {
+  const list = field('report-feed');
+  list.replaceChildren();
+  for (const report of recentReports.slice(0, visibleReports)) {
+    const card = document.createElement('article');
+    const who = document.createElement('strong');
+    who.textContent = report.reporter === ownKey ? 'You' : 'Reporter';
+    const key = document.createElement('code');
+    key.textContent = report.reporter;
+    const date = document.createElement('time');
+    date.dateTime = new Date(report.submittedAt).toISOString();
+    date.textContent = new Date(report.submittedAt).toLocaleString();
+    card.append(who, key, date);
+    for (const { id, label } of reportQuestions) {
+      if (!report.answers[id]) continue;
+      const answer = document.createElement('div');
+      answer.textContent = label + ' · ' + report.answers[id];
+      card.append(answer);
+    }
+    if (report.temperatureF !== undefined) {
+      const reading = document.createElement('div');
+      reading.textContent = 'Measured temperature · ' + report.temperatureF + ' °F';
+      card.append(reading);
+    }
+    list.append(card);
+  }
+  field('more-reports').hidden = recentReports.length <= visibleReports;
+}
 const questions = new Map();
 for (const { id, label, choices } of reportQuestions) {
   const row = document.createElement('label');
@@ -60,6 +91,10 @@ function selectTab(announcements) {
   if (announcements) {
     field('report-status').textContent = '';
     field('report-count').textContent = '';
+    field('empty-reports').hidden = true;
+    recentReports = [];
+    visibleReports = 5;
+    renderReports();
     field('temperature').value = '';
     for (const select of questions.values()) {
       select.value = '';
@@ -85,7 +120,10 @@ async function updateReport({ submit = false, hydrate = false } = {}) {
       : await request.emitWithAck(reportEvents.read, selectedRoom);
     if (requestId !== reportRequest) return;
     if (!result.ok) throw new Error(result.error);
-    const { summary, own } = result.view;
+    const { summary, own, recent } = result.view;
+    recentReports = recent;
+    field('empty-reports').hidden = !!recent.length;
+    renderReports();
     for (const [id, select] of questions) {
       if (hydrate) select.value = own.answers[id] ?? '';
       for (const [index, option] of [...select.options].slice(1).entries()) {
@@ -112,6 +150,10 @@ field('report').addEventListener('submit', (event) => {
   void updateReport({ submit: true });
 });
 field('refresh-report').addEventListener('click', () => updateReport());
+field('more-reports').addEventListener('click', () => {
+  visibleReports += 5;
+  renderReports();
+});
 
 function renderRoom() {
   field('messages').replaceChildren();
@@ -305,6 +347,10 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 #error{color:#ffbaad}
 #level-tabs button{background:#36363d;color:white;margin-right:6px}
 #level-tabs button[aria-pressed="true"]{background:#a6e6ce;color:#102624}
+#report-feed{display:grid;gap:8px;margin:12px 0}
+#report-feed article{display:grid;gap:5px;background:#303036;padding:12px;border-radius:8px}
+#report-feed code{overflow-wrap:anywhere;color:#d4d4d8}
+#report-feed time{font-size:.85rem;color:#a1a1aa}
 #report-fields{border:0;margin:0;padding:0}
 #report-questions{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
 #report-questions select{display:block;margin-top:5px}
@@ -327,12 +373,19 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <h3>Level conditions</h3>
 <p>Share what you observed. Submitting replaces your previous report for this level.</p>
 <fieldset id="report-fields" disabled>
+<h4>Submitted reports</h4>
+<p>Reports are visible with your public chat ID.</p>
+<button type="button" id="refresh-report">Refresh reports</button>
+<p id="empty-reports" hidden>No reports for this level yet.</p>
+<div id="report-feed"></div>
+<button type="button" id="more-reports" hidden>Show more reports</button>
+<h4>Your report</h4>
 <div id="report-questions"></div>
 <label for="temperature">Measured temperature (°F, optional)</label>
 <input id="temperature" type="number" min="-100" max="200" step="any">
 <p id="report-count"></p>
 <button type="submit">Submit report</button>
-<button type="button" id="refresh-report">Refresh totals</button>
+
 </fieldset>
 <p id="report-status" role="status"></p>
 </form>

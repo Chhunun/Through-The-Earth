@@ -139,7 +139,7 @@ export default function ChatScreen() {
           value={peer} onChangeText={setPeer} className="rounded-lg bg-slate-800 p-3 text-white" />
         </>}
       </View>
-      {room && announcements ? <Announcements key={room} online={online} load={loadReport} /> : <>
+      {room && announcements ? <Announcements key={room} online={online} ownKey={key} load={loadReport} /> : <>
       <FlatList<Pick<RoomMessage, "id" | "from" | "text">> className="flex-1" contentContainerStyle={{ padding: 16, gap: 10 }}
         data={thread} keyExtractor={(item) => item.from + ':' + item.id}
         ListEmptyComponent={<Text className="text-slate-400">
