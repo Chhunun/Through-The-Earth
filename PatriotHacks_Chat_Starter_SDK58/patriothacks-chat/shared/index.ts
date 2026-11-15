@@ -54,3 +54,47 @@ export const roomEvents = {
 } as const;
 export const isRoom = (value: unknown): value is Room =>
   rooms.some((room) => room === value);
+
+export const reportQuestions = [
+  { id: 'air', label: 'Air shortage or poor airflow', choices: ['None observed', 'Reduced airflow', 'Little or no airflow'] },
+  { id: 'power', label: 'Power outages', choices: ['None observed', 'Intermittent', 'Partial outage', 'Power is out'] },
+  { id: 'blackout', label: 'Lighting blackout', choices: ['None observed', 'Some areas dark', 'Whole level dark'] },
+  { id: 'supplies', label: 'Essential supplies available', choices: ['Adequate', 'Running low', 'Out of essentials'] },
+  { id: 'ill', label: 'Visibly ill people you observed', choices: ['0', '1–5', '6–10', '11+'] },
+  { id: 'heat', label: 'Heat conditions', choices: ['Comfortable', 'Hot', 'Very hot'] },
+  { id: 'lung', label: 'Breathing or lung symptoms observed', choices: ['None observed', 'Yes'] },
+] as const;
+
+export type ReportAnswers = Partial<Record<(typeof reportQuestions)[number]['id'], string>>;
+export interface LevelReport {
+  answers: ReportAnswers;
+  temperatureF?: number;
+}
+export interface LevelReportSummary {
+  reports: number;
+  counts: Record<string, number[]>;
+  averageTemperatureF?: number;
+  temperatureCount: number;
+}
+export interface LevelReportView {
+  summary: LevelReportSummary;
+  own: LevelReport;
+}
+export type LevelReportResult = { ok: true; view: LevelReportView } | { ok: false; error: string };
+
+export const reportEvents = { read: 'report:read', submit: 'report:submit' } as const;
+
+export function parseLevelReport(answers: ReportAnswers, temperature: string): LevelReport {
+  const report: LevelReport = { answers };
+  if (temperature.trim()) {
+    const value = Number(temperature);
+    if (!Number.isFinite(value) || value < -100 || value > 200) {
+      throw new Error('Enter a measured temperature between −100 and 200 °F.');
+    }
+    report.temperatureF = value;
+  }
+  if (!Object.values(answers).some(Boolean) && report.temperatureF === undefined) {
+    throw new Error('Answer at least one question or enter a temperature.');
+  }
+  return report;
+}

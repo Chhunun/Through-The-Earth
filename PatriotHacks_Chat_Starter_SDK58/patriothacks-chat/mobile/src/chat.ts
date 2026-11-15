@@ -55,6 +55,7 @@ export async function startChat(isActive: () => boolean) {
   return {
     close: relay.close,
     sendRoom: relay.sendRoom,
+    levelReport: relay.levelReport,
     async loadRoom(room: Room) {
       mergeRoom(room, await relay.roomHistory(room));
     },

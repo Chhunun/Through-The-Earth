@@ -1,13 +1,15 @@
+import Announcements from '../src/Announcements';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, Share, Text, TextInput, View } from 'react-native';
-import { isPublicKey, rooms, type Room, type RoomMessage } from '@patriot/protocol';
+import { isPublicKey, rooms, type Room, type RoomMessage, type LevelReport } from '@patriot/protocol';
 import { startChat, useChat } from '../src/chat';
 
 export default function ChatScreen() {
   const { key, online, relayError, messages, roomMessages } = useChat();
   const session = useRef<Awaited<ReturnType<typeof startChat>>>(undefined);
   const [channelsOpen, setChannelsOpen] = useState(false);
+  const [announcements, setAnnouncements] = useState(false);
   const [room, setRoom] = useState<Room>();
   const [peer, setPeer] = useState('');
   const [draft, setDraft] = useState('');
@@ -56,6 +58,11 @@ export default function ChatScreen() {
     }
   }
 
+  const loadReport = useCallback(async (report?: LevelReport) => {
+    if (!room || !session.current) throw new Error('Relay is offline');
+    return session.current.levelReport(room, report);
+  }, [room]);
+
   const canSend = online && (room !== undefined || validPeer) && draft.trim().length > 0 && !sending;
 
   return (
@@ -96,6 +103,7 @@ export default function ChatScreen() {
                       setChannelsOpen(false);
                       if (room === option) return;
                       setRoom(option);
+                      setAnnouncements(false);
                       setDraft('');
                       setError('');
                     }}>
@@ -109,7 +117,17 @@ export default function ChatScreen() {
             <Pressable accessible={false} className="flex-1" onPress={() => setChannelsOpen(false)} />
           </View>
         </Modal>
-        {room ? <Text className="text-xs text-slate-300">
+        {room ? <View className="flex-row gap-2">
+          {[false, true].map((value) => (
+            <Pressable key={String(value)} accessibilityRole="tab"
+              accessibilityState={{ selected: value === announcements }}
+              className={value === announcements ? 'rounded-md bg-zinc-700 px-3 py-2' : 'rounded-md px-3 py-2'}
+              onPress={() => setAnnouncements(value)}>
+              <Text className="text-white">{value ? 'Announcements' : 'Chat'}</Text>
+            </Pressable>
+          ))}
+        </View> : null}
+        {room ? !announcements && <Text className="text-xs text-slate-300">
           Open demo room · Messages are visible to the relay.
         </Text> : <>
         <Text selectable className="text-xs text-slate-400">{key || 'Loading device identity…'}</Text>
@@ -121,6 +139,7 @@ export default function ChatScreen() {
           value={peer} onChangeText={setPeer} className="rounded-lg bg-slate-800 p-3 text-white" />
         </>}
       </View>
+      {room && announcements ? <Announcements key={room} online={online} load={loadReport} /> : <>
       <FlatList<Pick<RoomMessage, "id" | "from" | "text">> className="flex-1" contentContainerStyle={{ padding: 16, gap: 10 }}
         data={thread} keyExtractor={(item) => item.from + ':' + item.id}
         ListEmptyComponent={<Text className="text-slate-400">
@@ -144,6 +163,7 @@ export default function ChatScreen() {
           </Pressable>
         </View>
       </View>
+      </>}
     </KeyboardAvoidingView>
   );
 }

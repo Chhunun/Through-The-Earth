@@ -12,7 +12,7 @@ const browserCode = buildSync({
     contents: String.raw`
 import { io } from 'socket.io-client';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, rooms, roomEvents } from './shared/index.ts';
+import { events, isEnvelope, isPublicKey, rooms, roomEvents, parseLevelReport, reportEvents, reportQuestions } from './shared/index.ts';
 
 const field = (id) => document.getElementById(id);
 const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
@@ -36,6 +36,82 @@ for (const channel of [...rooms, '']) {
 const roomMessages = new Map();
 const directMessages = [];
 let selectedRoom = '';
+let reportOpen = false;
+let reportRequest = 0;
+const questions = new Map();
+for (const { id, label, choices } of reportQuestions) {
+  const row = document.createElement('label');
+  row.textContent = label;
+  const select = document.createElement('select');
+  select.add(new Option('Not answered', ''));
+  for (const choice of choices) select.add(new Option(choice, choice));
+  row.append(select);
+  field('report-questions').append(row);
+  questions.set(id, select);
+}
+
+function selectTab(announcements) {
+  reportOpen = announcements;
+  reportRequest++;
+  field('chat').hidden = announcements;
+  field('report').hidden = !announcements;
+  field('chat-tab').setAttribute('aria-pressed', String(!announcements));
+  field('announcements-tab').setAttribute('aria-pressed', String(announcements));
+  if (announcements) {
+    field('report-status').textContent = '';
+    field('report-count').textContent = '';
+    field('temperature').value = '';
+    for (const select of questions.values()) {
+      select.value = '';
+      for (const option of [...select.options].slice(1)) option.textContent = option.value;
+    }
+    void updateReport({ hydrate: true });
+  }
+}
+
+async function updateReport({ submit = false, hydrate = false } = {}) {
+  if (!authenticated || !selectedRoom || !reportOpen) return;
+  const requestId = ++reportRequest;
+  const fields = field('report-fields');
+  fields.disabled = true;
+  field('report-status').textContent = '';
+  try {
+    const request = socket.timeout(5000);
+    const answers = Object.fromEntries([...questions]
+      .filter(([, select]) => select.value)
+      .map(([id, select]) => [id, select.value]));
+    const result = submit
+      ? await request.emitWithAck(reportEvents.submit, selectedRoom, parseLevelReport(answers, field('temperature').value))
+      : await request.emitWithAck(reportEvents.read, selectedRoom);
+    if (requestId !== reportRequest) return;
+    if (!result.ok) throw new Error(result.error);
+    const { summary, own } = result.view;
+    for (const [id, select] of questions) {
+      if (hydrate) select.value = own.answers[id] ?? '';
+      for (const [index, option] of [...select.options].slice(1).entries()) {
+        option.textContent = option.value + ' · ' + summary.counts[id][index];
+      }
+    }
+    if (hydrate) field('temperature').value = own.temperatureF ?? '';
+    field('report-count').textContent = summary.reports + ' reports' +
+      (summary.temperatureCount ? ' · Average ' + summary.averageTemperatureF.toFixed(1) + ' °F (' + summary.temperatureCount + ' readings)' : '');
+    if (submit) field('report-status').textContent = 'Report saved.';
+  } catch (error) {
+    if (requestId === reportRequest) field('report-status').textContent = error.message;
+  } finally {
+    if (requestId === reportRequest) fields.disabled = !authenticated;
+  }
+}
+
+field('chat-tab').addEventListener('click', () => selectTab(false));
+field('announcements-tab').addEventListener('click', () => {
+  if (!reportOpen) selectTab(true);
+});
+field('report').addEventListener('submit', (event) => {
+  event.preventDefault();
+  void updateReport({ submit: true });
+});
+field('refresh-report').addEventListener('click', () => updateReport());
 
 function renderRoom() {
   field('messages').replaceChildren();
@@ -71,6 +147,8 @@ function showDirect(label, text) {
 function selectChannel(channel) {
   if (channel === selectedRoom) return;
   selectedRoom = channel;
+  field('level-tabs').hidden = !channel;
+  selectTab(false);
   for (const [name, button] of channelButtons) {
     button.setAttribute('aria-pressed', String(name === channel));
   }
@@ -96,6 +174,7 @@ function status(online, message) {
   authenticated = online;
   field('status').textContent = message;
   field('send').disabled = !online;
+  field('report-fields').disabled = !online;
 }
 
 socket.on('disconnect', () => status(false, 'Relay offline'));
@@ -111,6 +190,7 @@ socket.on(events.challenge, async (challenge) => {
     if (socket.id === connection) {
       status(true, 'Relay connected');
       void loadRoom(selectedRoom);
+      if (reportOpen) void updateReport({ hydrate: true });
     }
   } catch (error) {
     if (socket.id === connection) status(false, error.message);
@@ -223,6 +303,11 @@ button:disabled{opacity:.5;cursor:default}
 ul{min-height:120px;max-height:40vh;overflow:auto;padding:12px 12px 12px 32px;background:#172230;border-radius:6px}
 li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 #error{color:#ffbaad}
+#level-tabs button{background:#36363d;color:white;margin-right:6px}
+#level-tabs button[aria-pressed="true"]{background:#a6e6ce;color:#102624}
+#report-fields{border:0;margin:0;padding:0}
+#report-questions{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
+#report-questions select{display:block;margin-top:5px}
 </style>
 <aside>
 <h1>PatriotHacks Chat</h1>
@@ -234,6 +319,23 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <label for="public-key">Your public key</label>
 <div class="key"><input id="public-key" readonly><button id="copy" type="button">Copy</button></div>
 <p>Reloading this tab creates a new key and clears the chat.</p>
+<div id="level-tabs" hidden>
+<button type="button" id="chat-tab" aria-pressed="true">Chat</button>
+<button type="button" id="announcements-tab" aria-pressed="false">Announcements</button>
+</div>
+<form id="report" hidden>
+<h3>Level conditions</h3>
+<p>Share what you observed. Submitting replaces your previous report for this level.</p>
+<fieldset id="report-fields" disabled>
+<div id="report-questions"></div>
+<label for="temperature">Measured temperature (°F, optional)</label>
+<input id="temperature" type="number" min="-100" max="200" step="any">
+<p id="report-count"></p>
+<button type="submit">Submit report</button>
+<button type="button" id="refresh-report">Refresh totals</button>
+</fieldset>
+<p id="report-status" role="status"></p>
+</form>
 <form id="chat">
 <p id="room-note" hidden>Open demo room · Messages are visible to the relay.</p>
 <div id="direct">

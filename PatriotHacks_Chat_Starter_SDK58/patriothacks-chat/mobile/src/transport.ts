@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { events, isEnvelope, roomEvents, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
+import { events, isEnvelope, reportEvents, roomEvents, type LevelReport, type LevelReportResult, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
 import { proveIdentity } from './crypto';
 
 export function connectRelay(
@@ -52,6 +52,15 @@ export function connectRelay(
     close() {
       socket.removeAllListeners();
       socket.disconnect();
+    },
+    async levelReport(room: Room, report?: LevelReport) {
+      if (!authenticated || !socket.connected) throw new Error('Relay is offline');
+      const request = socket.timeout(5000);
+      const result: LevelReportResult = report
+        ? await request.emitWithAck(reportEvents.submit, room, report)
+        : await request.emitWithAck(reportEvents.read, room);
+      if (!result.ok) throw new Error(result.error);
+      return result.view;
     },
     roomHistory(room: Room): Promise<RoomMessage[]> {
       return socket.timeout(5000).emitWithAck(roomEvents.history, room);

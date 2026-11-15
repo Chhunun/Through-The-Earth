@@ -1,9 +1,10 @@
+import { validateReport, saveReport, readReports } from './reports.js';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { Server } from 'socket.io';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, isRoom, roomEvents, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
+import { events, isEnvelope, isPublicKey, isRoom, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 const app = express();
 app.get('/health', (_request, response) => response.json({ ok: true }));
@@ -70,6 +71,29 @@ io.on('connection', (socket) => {
     pending.set(message.to, mailbox);
     io.to(room(message.to)).emit(events.receive, message);
     reply({ ok: true });
+  });
+
+  socket.on(reportEvents.read, (requested: unknown, reply: (result: LevelReportResult) => void) => {
+    if (typeof reply !== 'function') return;
+    if (!authenticated || !isRoom(requested)) {
+      reply({ ok: false, error: 'Invalid level or session' });
+      return;
+    }
+    reply({ ok: true, view: readReports(requested, key) });
+  });
+
+  socket.on(reportEvents.submit, (requested: unknown, value: unknown, reply: (result: LevelReportResult) => void) => {
+    if (typeof reply !== 'function') return;
+    if (!authenticated || !isRoom(requested)) {
+      reply({ ok: false, error: 'Invalid level or session' });
+      return;
+    }
+    const report = validateReport(value);
+    if (!report || !saveReport(requested, key, report)) {
+      reply({ ok: false, error: report ? 'This level has reached its report limit.' : 'Invalid report.' });
+      return;
+    }
+    reply({ ok: true, view: readReports(requested, key) });
   });
 
   socket.on(roomEvents.history, (requested: unknown, reply: (result: RoomMessage[]) => void) => {
