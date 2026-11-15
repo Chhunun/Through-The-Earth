@@ -6,10 +6,11 @@ type Props = {
   profile?: ChatProfile;
   online: boolean;
   save: (profile: ChatProfile) => Promise<void>;
-  close: () => void;
+  close?: () => void;
+  submitLabel?: string;
 };
 
-export default function ProfileEditor({ profile, online, save, close }: Props) {
+export default function ProfileEditor({ profile, online, save, close, submitLabel = 'Save profile' }: Props) {
   const [name, setName] = useState(profile?.name ?? '');
   const [level, setLevel] = useState<Room | undefined>(profile?.level);
   const [error, setError] = useState('');
@@ -22,7 +23,7 @@ export default function ProfileEditor({ profile, online, save, close }: Props) {
     setError('');
     try {
       await save(next);
-      close();
+      close?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setBusy(false);
@@ -47,11 +48,11 @@ export default function ProfileEditor({ profile, online, save, close }: Props) {
       <View className="flex-row gap-2">
         <Pressable accessibilityRole="button" disabled={busy || !online || !name.trim() || !level}
           className="rounded-md bg-sky-800 p-2 disabled:opacity-50" onPress={submit}>
-          <Text className="font-semibold text-white">Save profile</Text>
+          <Text className="font-semibold text-white">{busy ? 'Saving…' : submitLabel}</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" disabled={busy} className="p-2" onPress={close}>
+        {close ? <Pressable accessibilityRole="button" disabled={busy} className="p-2" onPress={close}>
           <Text className="text-white">Cancel</Text>
-        </Pressable>
+        </Pressable> : null}
       </View>
       {error ? <Text className="text-rose-300">{error}</Text> : null}
     </View>

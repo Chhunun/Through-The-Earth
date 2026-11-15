@@ -2,13 +2,14 @@ import ProfileEditor from '../src/ProfileEditor';
 import Announcements from '../src/Announcements';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, Share, Text, TextInput, View } from 'react-native';
+import { FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 import { isPublicKey, profileLabel, rooms, type ChatProfile, type Room, type RoomMessage, type LevelReport } from '@patriot/protocol';
 import { startChat, useChat } from '../src/chat';
 
 export default function ChatScreen() {
-  const { key, online, relayError, messages, roomMessages, profiles } = useChat();
+  const { key, online, relayError, messages, roomMessages, profiles, profilesReady } = useChat();
   const session = useRef<Awaited<ReturnType<typeof startChat>>>(undefined);
+  const [signedIn, setSignedIn] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [announcements, setAnnouncements] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -70,6 +71,44 @@ export default function ChatScreen() {
   async function saveProfile(next: ChatProfile) {
     if (!session.current) throw new Error('Relay is offline');
     await session.current.saveProfile(next);
+  }
+
+  function enterChat(level: Room) {
+    Keyboard.dismiss();
+    setRoom(level);
+    setSignedIn(true);
+  }
+
+  if (!signedIn) {
+    return (
+      <KeyboardAvoidingView className="flex-1 bg-slate-950"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}>
+          <View className="gap-3 rounded-2xl bg-zinc-900 p-5">
+            <Text accessibilityRole="header" className="text-2xl font-semibold text-white">Sign in to PatriotHacks</Text>
+            {!online || !profilesReady ? (
+              <Text accessibilityLiveRegion="polite" className="text-zinc-300">
+                {error || relayError || (online ? 'Loading your profile…' : 'Connecting to the relay…')}
+              </Text>
+            ) : profile ? (
+              <>
+                <Text className="text-zinc-200">{profileLabel(profile)}</Text>
+                <Pressable accessibilityRole="button" className="self-start rounded-lg bg-sky-800 px-4 py-3"
+                  onPress={() => enterChat(profile.level)}>
+                  <Text className="font-semibold text-white">Continue to chat</Text>
+                </Pressable>
+              </>
+            ) : (
+              <ProfileEditor online={online} submitLabel="Sign in" save={async (next) => {
+                await saveProfile(next);
+                enterChat(next.level);
+              }} />
+            )}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
   }
 
   const canSend = online && (room !== undefined || validPeer) && draft.trim().length > 0 && !sending;

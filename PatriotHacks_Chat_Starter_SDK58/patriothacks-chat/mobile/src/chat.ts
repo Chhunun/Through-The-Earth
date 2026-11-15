@@ -8,11 +8,12 @@ type Message = Envelope & { text: string };
 export const useChat = create<{
   key: string;
   profiles: ChatProfiles;
+  profilesReady: boolean;
   online: boolean;
   relayError: string;
   messages: Message[];
   roomMessages: Partial<Record<Room, RoomMessage[]>>;
-}>(() => ({ key: '', profiles: {}, online: false, relayError: '', messages: [], roomMessages: {} }));
+}>(() => ({ key: '', profiles: {}, profilesReady: false, online: false, relayError: '', messages: [], roomMessages: {} }));
 
 async function display(envelope: Envelope) {
   const message = { ...envelope, text: await decryptMessage(envelope) };
@@ -44,7 +45,7 @@ export async function startChat(isActive: () => boolean) {
     }
   }
   if (!isActive()) return;
-  useChat.setState({ key, messages, online: false, relayError: '' });
+  useChat.setState({ key, messages, profiles: {}, profilesReady: false, online: false, relayError: '' });
   const url = process.env.EXPO_PUBLIC_RELAY_URL;
   if (!url) {
     useChat.setState({ relayError: 'Set EXPO_PUBLIC_RELAY_URL in mobile/.env' });
@@ -53,6 +54,7 @@ export async function startChat(isActive: () => boolean) {
   const relay = connectRelay(url, key, display, (message) => mergeRoom(message.room, [], message),
     (profiles, replace) => useChat.setState((state) => ({
       profiles: replace ? profiles : { ...state.profiles, ...profiles },
+      profilesReady: replace || state.profilesReady,
     })),
     (online, error) => {
     useChat.setState({ online, relayError: error ?? '' });

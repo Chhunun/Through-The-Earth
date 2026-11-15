@@ -39,6 +39,8 @@ let authenticated = false;
 const seen = new Set();
 let profiles = {};
 let savingProfile = false;
+let profilesReady = false;
+let signedIn = false;
 const homeLevel = field('home-level');
 for (const room of rooms) homeLevel.add(new Option(room, room));
 
@@ -47,7 +49,35 @@ function authorLabel(key, fallback) {
   return profile ? profileLabel(profile) : fallback;
 }
 
+function updateSignIn() {
+  const profile = profiles[ownKey];
+  const ready = authenticated && profilesReady;
+  field('sign-in-card').hidden = signedIn;
+  field('existing-profile').hidden = signedIn || !ready || !profile;
+  field('profile-details').hidden = !signedIn && (!ready || !!profile);
+  field('profile-title').hidden = !signedIn;
+  if (!signedIn && ready && !profile) field('profile-details').open = true;
+  field('sign-in-name').textContent = profile ? profileLabel(profile) : '';
+  field('continue-chat').disabled = !ready || !profile;
+  field('sign-in-wait').hidden = ready;
+}
+
+function enterChat(profile) {
+  signedIn = true;
+  field('profile-details').open = false;
+  field('chat-sidebar').hidden = false;
+  field('chat-workspace').hidden = false;
+  document.body.classList.remove('sign-in');
+  updateSignIn();
+  selectChannel(profile.level);
+}
+
+field('continue-chat').addEventListener('click', () => {
+  if (authenticated && profilesReady && profiles[ownKey]) enterChat(profiles[ownKey]);
+});
+
 function updateProfileSummary() {
+  updateSignIn();
   field('profile-title').textContent = authorLabel(ownKey, 'Set up profile');
   if (selectedRoom) renderRoom();
   else renderDirect();
@@ -76,7 +106,8 @@ field('profile-form').addEventListener('submit', async (event) => {
   try {
     const ack = await socket.timeout(5000).emitWithAck(profileEvents.save, profile);
     if (!ack.ok) throw new Error(ack.error);
-    field('profile-details').open = false;
+    if (!signedIn) enterChat(profile);
+    else field('profile-details').open = false;
   } catch (error) {
     field('profile-status').textContent = error.message;
   } finally {
@@ -318,11 +349,13 @@ function status(online, message) {
   field('status').textContent = message;
   field('send').disabled = !online;
   field('save-profile').disabled = !online || savingProfile;
+  updateSignIn();
   field('report-fields').disabled = !online;
 }
 
 socket.on(profileEvents.snapshot, (snapshot) => {
   profiles = snapshot;
+  profilesReady = true;
   updateProfileSummary();
 });
 socket.on(profileEvents.changed, (key, profile) => {
@@ -330,7 +363,10 @@ socket.on(profileEvents.changed, (key, profile) => {
   updateProfileSummary();
 });
 
-socket.on('disconnect', () => status(false, 'Relay offline'));
+socket.on('disconnect', () => {
+  profilesReady = false;
+  status(false, 'Relay offline');
+});
 socket.on('connect_error', () => status(false, 'Cannot reach the relay. Check that it is running.'));
 socket.on(events.challenge, async (challenge) => {
   const connection = socket.id;
@@ -438,6 +474,11 @@ const page = `<!doctype html>
 *{box-sizing:border-box}
 body{background:#101822;color:#edf3fa;font:16px system-ui;margin:0}
 body{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh;background:#222226}
+body.sign-in{grid-template-columns:minmax(0,1fr);place-items:center}
+body.sign-in main{max-width:500px}
+body.sign-in #profile-details{background:#303036;border-radius:12px;padding:16px}
+#profile-details summary{cursor:pointer}
+#profile-title[hidden]{display:none}
 aside{background:#18181b;padding:20px 10px}
 aside h1{font-size:1rem;padding:0 8px 12px}
 nav{display:grid;gap:4px}
@@ -471,14 +512,22 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 #report-questions{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
 #report-questions select{display:block;margin-top:5px}
 </style>
-<aside>
+<body class="sign-in">
+<aside id="chat-sidebar" hidden>
 <h1>PatriotHacks Chat</h1>
 <nav id="channels" aria-label="Channels"></nav>
 </aside>
 <main>
-<h2 id="channel-title">Direct chat</h2>
+<section id="sign-in-card">
+<h2>Sign in to PatriotHacks</h2>
+<p id="sign-in-wait">Waiting for your profile from the relay…</p>
+<div id="existing-profile" hidden>
+<p id="sign-in-name"></p>
+<button type="button" id="continue-chat" disabled>Continue to chat</button>
+</div>
+</section>
 <p id="status" role="status">Connecting to relay…</p>
-<details id="profile-details">
+<details id="profile-details" hidden>
 <summary id="profile-title">Set up profile</summary>
 <form id="profile-form">
 <label for="display-name">Display name</label>
@@ -489,6 +538,8 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <button type="submit" id="save-profile" disabled>Save profile</button>
 </form>
 </details>
+<div id="chat-workspace" hidden>
+<h2 id="channel-title">Direct chat</h2>
 <label for="public-key">Your public key</label>
 <div class="key"><input id="public-key" readonly><button id="copy" type="button">Copy</button></div>
 <p id="identity-note">This browser profile keeps your chat identity on this PC.</p>
@@ -534,8 +585,10 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <p id="error" role="alert"></p>
 <button id="send" disabled>Send</button>
 </form>
+</div>
 </main>
 <script src="/browser-chat.js" defer></script>
+</body>
 </html>`;
 
 createServer((request, response) => {
