@@ -38,3 +38,19 @@ export function isEnvelope(value: unknown): value is Envelope {
     && /^[A-Za-z0-9+/]+={0,2}$/.test(e.ciphertext)
     && typeof e.sentAt === 'number' && Number.isSafeInteger(e.sentAt) && e.sentAt > 0;
 }
+
+export const rooms = ['Upper Level', 'Middle Level', 'Lower Levels'] as const;
+export type Room = (typeof rooms)[number];
+export interface RoomMessage {
+  id: string;
+  room: Room;
+  from: string;
+  text: string;
+}
+export const roomEvents = {
+  history: 'room:history',
+  send: 'room:send',
+  message: 'room:message',
+} as const;
+export const isRoom = (value: unknown): value is Room =>
+  rooms.some((room) => room === value);

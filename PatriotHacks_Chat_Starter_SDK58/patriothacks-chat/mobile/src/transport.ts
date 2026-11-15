@@ -1,11 +1,12 @@
 import { io } from 'socket.io-client';
-import { events, isEnvelope, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
+import { events, isEnvelope, roomEvents, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
 import { proveIdentity } from './crypto';
 
 export function connectRelay(
   url: string,
   key: string,
   onMessage: (message: Envelope) => Promise<void>,
+  onRoomMessage: (message: RoomMessage) => void,
   onStatus: (online: boolean, error?: string) => void,
 ) {
   const socket = io(url, { auth: { publicKey: key }, autoConnect: false });
@@ -44,12 +45,21 @@ export function connectRelay(
       console.warn('Could not accept message', String(error));
     }
   });
+  socket.on(roomEvents.message, onRoomMessage);
   socket.connect();
 
   return {
     close() {
       socket.removeAllListeners();
       socket.disconnect();
+    },
+    roomHistory(room: Room): Promise<RoomMessage[]> {
+      return socket.timeout(5000).emitWithAck(roomEvents.history, room);
+    },
+    async sendRoom(room: Room, text: string) {
+      if (!authenticated || !socket.connected) throw new Error('Relay is offline');
+      const ack: Ack = await socket.timeout(5000).emitWithAck(roomEvents.send, room, text);
+      if (!ack.ok) throw new Error(ack.error);
     },
     async send(message: Envelope) {
       if (!authenticated || !socket.connected) throw new Error('Relay is offline');

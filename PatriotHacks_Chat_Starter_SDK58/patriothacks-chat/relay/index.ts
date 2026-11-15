@@ -1,15 +1,16 @@
 import { createServer } from 'node:http';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { Server } from 'socket.io';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, type Ack, type Envelope } from '@patriot/protocol';
+import { events, isEnvelope, isPublicKey, isRoom, roomEvents, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 const app = express();
 app.get('/health', (_request, response) => response.json({ ok: true }));
 const server = createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 64 * 1024 });
 const pending = new Map<string, Map<string, Envelope>>();
+const roomHistory = new Map<Room, RoomMessage[]>();
 const relayKeys = nacl.box.keyPair();
 const room = (key: string) => 'identity:' + key;
 
@@ -42,7 +43,7 @@ io.on('connection', (socket) => {
       return;
     }
     clearTimeout(deadline);
-    await socket.join(room(key));
+    await socket.join([room(key), "room-readers"]);
     authenticated = true;
     reply({ ok: true });
     for (const message of pending.get(key)?.values() ?? []) socket.emit(events.receive, message);
@@ -68,6 +69,26 @@ io.on('connection', (socket) => {
     mailbox.set(deliveryId, message);
     pending.set(message.to, mailbox);
     io.to(room(message.to)).emit(events.receive, message);
+    reply({ ok: true });
+  });
+
+  socket.on(roomEvents.history, (requested: unknown, reply: (result: RoomMessage[]) => void) => {
+    if (authenticated && isRoom(requested) && typeof reply === 'function') {
+      reply(roomHistory.get(requested) ?? []);
+    }
+  });
+
+  socket.on(roomEvents.send, (requested: unknown, body: unknown, reply: (ack: Ack) => void) => {
+    if (typeof reply !== 'function') return;
+    if (!authenticated || !isRoom(requested) || typeof body !== 'string'
+      || body.length > 2000 || !body.trim()) {
+      reply({ ok: false, error: 'Invalid room message' });
+      return;
+    }
+    const message = { id: randomUUID(), room: requested, from: key, text: body.trim() };
+    const history = roomHistory.get(requested) ?? [];
+    roomHistory.set(requested, [...history.slice(-99), message]);
+    io.to('room-readers').emit(roomEvents.message, message);
     reply({ ok: true });
   });
 

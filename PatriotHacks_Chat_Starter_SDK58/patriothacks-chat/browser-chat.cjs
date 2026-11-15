@@ -12,7 +12,7 @@ const browserCode = buildSync({
     contents: String.raw`
 import { io } from 'socket.io-client';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey } from './shared/index.ts';
+import { events, isEnvelope, isPublicKey, rooms, roomEvents } from './shared/index.ts';
 
 const field = (id) => document.getElementById(id);
 const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
@@ -23,6 +23,57 @@ const ownKey = base64(keys.publicKey);
 field('public-key').value = ownKey;
 let authenticated = false;
 const seen = new Set();
+const roomPicker = field('room');
+for (const room of rooms) roomPicker.add(new Option(room, room));
+const roomMessages = new Map();
+const directMessages = [];
+let selectedRoom = '';
+
+function renderRoom() {
+  field('messages').replaceChildren();
+  const messages = roomMessages.get(selectedRoom) ?? [];
+  for (const message of messages) {
+    show(message.from === ownKey ? 'You' : 'From ' + message.from.slice(0, 10) + '…', message.text);
+  }
+}
+
+function mergeRoom(room, history, live) {
+  const merged = new Map(history.map((message) => [message.id, message]));
+  for (const message of roomMessages.get(room) ?? []) merged.set(message.id, message);
+  if (live) merged.set(live.id, live);
+  roomMessages.set(room, [...merged.values()].slice(-100));
+  if (room === selectedRoom) renderRoom();
+}
+
+async function loadRoom(room) {
+  if (!room || !authenticated) return;
+  try {
+    const history = await socket.timeout(5000).emitWithAck(roomEvents.history, room);
+    mergeRoom(room, history);
+  } catch {
+    if (room === selectedRoom) field('error').textContent = 'Could not load room history. Check that the updated relay is running.';
+  }
+}
+
+function showDirect(label, text) {
+  directMessages.push({ label, text });
+  if (!selectedRoom) show(label, text);
+}
+
+roomPicker.addEventListener('change', () => {
+  selectedRoom = roomPicker.value;
+  field('direct').hidden = !!selectedRoom;
+  field('room-note').hidden = !selectedRoom;
+  field('recipient').required = !selectedRoom;
+  field('draft').value = '';
+  field('error').textContent = '';
+  if (selectedRoom) renderRoom();
+  else {
+    field('messages').replaceChildren();
+    for (const { label, text } of directMessages) show(label, text);
+  }
+  void loadRoom(selectedRoom);
+});
 const socket = io(` + JSON.stringify(relay) + String.raw`, {
   transports: ['websocket'],
   auth: { publicKey: ownKey },
@@ -44,7 +95,10 @@ socket.on(events.challenge, async (challenge) => {
     if (!proof || proof.length !== 32) throw new Error('Invalid relay challenge');
     const ack = await socket.timeout(5000).emitWithAck(events.authenticate, base64(proof));
     if (!ack.ok) throw new Error(ack.error);
-    if (socket.id === connection) status(true, 'Relay connected');
+    if (socket.id === connection) {
+      status(true, 'Relay connected');
+      void loadRoom(selectedRoom);
+    }
   } catch (error) {
     if (socket.id === connection) status(false, error.message);
   }
@@ -57,6 +111,8 @@ function show(label, text) {
   line.scrollIntoView({ block: 'nearest' });
 }
 
+socket.on(roomEvents.message, (message) => mergeRoom(message.room, [], message));
+
 socket.on(events.receive, (message) => {
   if (!isEnvelope(message) || message.to !== ownKey) return;
   try {
@@ -68,7 +124,7 @@ socket.on(events.receive, (message) => {
         body.sentAt !== message.sentAt || typeof body.text !== 'string') return;
     const deliveryId = message.from + ':' + message.id;
     if (!seen.has(deliveryId)) {
-      show('From ' + message.from.slice(0, 10) + '…', body.text);
+      showDirect('From ' + message.from.slice(0, 10) + '…', body.text);
       seen.add(deliveryId);
     }
     socket.emit(events.received, message.from, message.id);
@@ -84,13 +140,20 @@ field('chat').addEventListener('submit', async (event) => {
   const to = field('recipient').value.trim();
   const draft = field('draft');
   const text = draft.value.trim();
-  if (!isPublicKey(to) || to === ownKey) {
+  const room = selectedRoom;
+  if (!room && (!isPublicKey(to) || to === ownKey)) {
     field('error').textContent = 'Paste the other device’s public key.';
     return;
   }
   if (!text) return;
   field('send').disabled = true;
   try {
+    if (room) {
+      const ack = await socket.timeout(5000).emitWithAck(roomEvents.send, room, text);
+      if (!ack.ok) throw new Error(ack.error);
+      if (selectedRoom === room && draft.value.trim() === text) draft.value = '';
+      return;
+    }
     const id = crypto.randomUUID();
     const sentAt = Date.now();
     const nonce = nacl.randomBytes(nacl.box.nonceLength);
@@ -99,8 +162,8 @@ field('chat').addEventListener('submit', async (event) => {
     const message = { v: 1, id, from: ownKey, to, sentAt, nonce: base64(nonce), ciphertext: base64(ciphertext) };
     const ack = await socket.timeout(5000).emitWithAck(events.send, message);
     if (!ack.ok) throw new Error(ack.error);
-    show('You', text);
-    if (draft.value.trim() === text) draft.value = '';
+    showDirect('You', text);
+    if (!selectedRoom && draft.value.trim() === text) draft.value = '';
   } catch (error) {
     field('error').textContent = error.message;
   } finally {
@@ -131,8 +194,8 @@ body{background:#101822;color:#edf3fa;font:16px system-ui;margin:0}
 main{max-width:680px;margin:6vh auto;padding:24px}
 h1{margin:0}p{color:#b9c9d9}
 label{display:block;margin:16px 0 6px}
-input,textarea,button{font:inherit;padding:10px;border:1px solid #52667b;border-radius:6px}
-input,textarea{background:#1f2d3c;color:inherit;width:100%}
+input,textarea,button,select{font:inherit;padding:10px;border:1px solid #52667b;border-radius:6px}
+input,textarea,select{background:#1f2d3c;color:inherit;width:100%}
 button{background:#a6e6ce;color:#102624;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
 .key{display:flex;gap:8px}
@@ -147,8 +210,13 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <div class="key"><input id="public-key" readonly><button id="copy" type="button">Copy</button></div>
 <p>Reloading this tab creates a new key and clears the chat.</p>
 <form id="chat">
+<label for="room">Conversation</label>
+<select id="room"><option value="">Direct chat</option></select>
+<p id="room-note" hidden>Open demo room · Messages are visible to the relay.</p>
+<div id="direct">
 <label for="recipient">Recipient public key</label>
 <input id="recipient" spellcheck="false" autocomplete="off" required>
+</div>
 <ul id="messages" aria-label="Messages" aria-live="polite"></ul>
 <label for="draft">Message</label>
 <textarea id="draft" rows="3" maxlength="2000" required></textarea>
