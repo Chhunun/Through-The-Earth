@@ -1,11 +1,11 @@
 import { profiles, storeProfile } from './profiles.js';
-import { validateReport, saveReport, readReports } from './reports.js';
+import { validateReport, saveReport, readReports, incidentSnapshot } from './reports.js';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { Server } from 'socket.io';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, isRoom, parseChatProfile, profileEvents, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
+import { events, isEnvelope, isPublicKey, isRoom, incidentEvent, parseChatProfile, profileEvents, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 const app = express();
 app.get('/health', (_request, response) => response.json({ ok: true }));
@@ -49,6 +49,7 @@ io.on('connection', (socket) => {
     authenticated = true;
     reply({ ok: true });
     socket.emit(profileEvents.snapshot, profiles);
+    socket.emit(incidentEvent, incidentSnapshot());
     for (const message of pending.get(key)?.values() ?? []) socket.emit(events.receive, message);
   });
 
@@ -116,6 +117,7 @@ io.on('connection', (socket) => {
       return;
     }
     reply({ ok: true, view: readReports(requested, key) });
+    publishIncidents();
   });
 
   socket.on(roomEvents.history, (requested: unknown, reply: (result: RoomMessage[]) => void) => {
@@ -145,6 +147,13 @@ io.on('connection', (socket) => {
     if (mailbox?.size === 0) pending.delete(key);
   });
 });
+
+function publishIncidents() {
+  io.to('room-readers').emit(incidentEvent, incidentSnapshot());
+}
+
+const incidentTimer = setInterval(publishIncidents, 30_000);
+server.on('close', () => clearInterval(incidentTimer));
 
 server.listen(Number(process.env.PORT ?? 3000), '0.0.0.0', () => {
   console.log('PatriotHacks relay listening on', server.address());

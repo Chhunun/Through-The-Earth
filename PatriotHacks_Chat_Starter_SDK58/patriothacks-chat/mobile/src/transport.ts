@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { events, isEnvelope, profileEvents, reportEvents, type ChatProfile, type ChatProfiles, roomEvents, type LevelReport, type LevelReportResult, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
+import { events, isEnvelope, incidentEvent, type IncidentSnapshot, profileEvents, reportEvents, type ChatProfile, type ChatProfiles, roomEvents, type LevelReport, type LevelReportResult, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
 import { proveIdentity } from './crypto';
 
 export function connectRelay(
@@ -8,6 +8,7 @@ export function connectRelay(
   onMessage: (message: Envelope) => Promise<void>,
   onRoomMessage: (message: RoomMessage) => void,
   onProfiles: (profiles: ChatProfiles, replace: boolean) => void,
+  onIncidents: (snapshot: IncidentSnapshot) => void,
   onStatus: (online: boolean, error?: string) => void,
 ) {
   const socket = io(url, { auth: { publicKey: key }, autoConnect: false });
@@ -50,6 +51,7 @@ export function connectRelay(
   socket.on(profileEvents.snapshot, (profiles: ChatProfiles) => onProfiles(profiles, true));
   socket.on(profileEvents.changed, (key: string, profile: ChatProfile) =>
     onProfiles({ [key]: profile }, false));
+  socket.on(incidentEvent, onIncidents);
   socket.connect();
 
   return {

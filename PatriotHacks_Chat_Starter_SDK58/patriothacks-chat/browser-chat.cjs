@@ -12,9 +12,19 @@ const browserCode = buildSync({
     contents: String.raw`
 import { io } from 'socket.io-client';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, parseChatProfile, profileEvents, profileLabel, rooms, roomEvents, parseLevelReport, reportEvents, reportPie, reportQuestions } from './shared/index.ts';
+import { events, isEnvelope, isPublicKey, parseChatProfile, profileEvents, profileLabel, rooms, roomEvents, parseLevelReport, reportEvents, reportPie, reportQuestions, sosMessage, checkInMessages, checkInStatus, incidentEvent, incidentLabels, incidentWindowMinutes, localClock } from './shared/index.ts';
 
 const field = (id) => document.getElementById(id);
+function refreshClock() {
+  const { date, time } = localClock();
+  const label = date + ' · ' + time;
+  const clock = field('local-clock');
+  if (clock.textContent !== label) clock.textContent = label;
+}
+refreshClock();
+setInterval(refreshClock, 1000);
+document.addEventListener('visibilitychange', refreshClock);
+
 const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 const base64 = (data) => btoa(String.fromCharCode(...data));
 nacl.setPRNG((buffer, length) => buffer.set(crypto.getRandomValues(new Uint8Array(length))));
@@ -35,9 +45,166 @@ function browserIdentity() {
 const keys = browserIdentity();
 const ownKey = base64(keys.publicKey);
 field('public-key').value = ownKey;
+const contactsSlot = 'patriothacks.contacts.v1:' + ownKey;
+
+function loadContacts() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(contactsSlot) ?? '[]');
+    if (Array.isArray(entries)) return [...new Set(entries.filter((key) => isPublicKey(key) && key !== ownKey))];
+  } catch {
+    field('contact-status').textContent = 'Could not load saved contacts.';
+  }
+  return [];
+}
+
+let contacts = loadContacts();
+const outboxSlot = 'patriothacks.check-ins.outbox:' + ownKey;
+const receivedSlot = 'patriothacks.check-ins.received:' + ownKey;
+
+function readCheckIns(slot) {
+  try {
+    const value = JSON.parse(localStorage.getItem(slot) ?? '[]');
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+let checkInOutbox = readCheckIns(outboxSlot).filter((item) => isEnvelope(item) && item.from === ownKey);
+const lastCheckIns = new Map(readCheckIns(receivedSlot).filter((item) =>
+  Array.isArray(item) && isPublicKey(item[0]) && Number.isFinite(item[1]?.sentAt) &&
+  ['I’m okay', 'Needs help'].includes(item[1]?.status)));
+let flushingCheckIns = false;
+
+function renderCheckIn() {
+  const recipient = field('recipient').value.trim();
+  field('check-in').hidden = !!selectedRoom || !isPublicKey(recipient) || recipient === ownKey;
+  const latest = lastCheckIns.get(recipient);
+  field('check-in-latest').textContent = latest
+    ? 'Last check-in · ' + latest.status + ' · ' + new Date(latest.sentAt).toLocaleString()
+    : 'No check-in received from this contact.';
+  const pending = checkInOutbox.filter((message) => message.to === recipient).length;
+  field('check-in-pending').textContent = pending
+    ? pending + (pending === 1 ? ' check-in queued' : ' check-ins queued') +
+      (authenticated ? ' · Waiting to send' : ' · Waiting for connection')
+    : '';
+}
+
+function rememberCheckIn(message, text) {
+  const status = checkInStatus(text);
+  if (!status || (lastCheckIns.get(message.from)?.sentAt ?? 0) > message.sentAt) return;
+  lastCheckIns.set(message.from, { status, sentAt: message.sentAt });
+  try {
+    localStorage.setItem(receivedSlot, JSON.stringify([...lastCheckIns]));
+  } catch {
+    field('check-in-pending').textContent = 'Your browser could not store this check-in.';
+  }
+  renderCheckIn();
+}
+
+function setOutbox(next) {
+  localStorage.setItem(outboxSlot, JSON.stringify(next));
+  checkInOutbox = next;
+  renderCheckIn();
+}
+
+async function flushCheckIns() {
+  if (!authenticated || flushingCheckIns) return;
+  flushingCheckIns = true;
+  try {
+    for (const message of checkInOutbox) {
+      if (!authenticated) break;
+      await sendDirectEnvelope(message);
+      const plaintext = nacl.box.open(bytes(message.ciphertext), bytes(message.nonce), bytes(message.to), keys.secretKey);
+      if (plaintext) showDirect(ownKey, message.to, JSON.parse(new TextDecoder().decode(plaintext)).text);
+      setOutbox(checkInOutbox.filter((item) => item.id !== message.id));
+    }
+  } catch {
+    // Keep the original encrypted envelope queued for retry.
+  } finally {
+    flushingCheckIns = false;
+  }
+}
+
+for (const [kind, id] of [['okay', 'check-in-okay'], ['request', 'check-in-request'], ['help', 'check-in-help']]) {
+  field(id).addEventListener('click', () => {
+    const to = field('recipient').value.trim();
+    if (selectedRoom || !isPublicKey(to) || to === ownKey) return;
+    if (kind === 'help' && !window.confirm('Send an in-app SOS to this contact?')) return;
+    field('error').textContent = '';
+    try {
+      setOutbox([...checkInOutbox, makeDirectEnvelope(to, checkInMessages[kind])]);
+      void flushCheckIns();
+    } catch {
+      field('error').textContent = 'Could not save this check-in to the queue.';
+    }
+  });
+}
+const recentPeers = new Set();
+
+function renderContacts() {
+  const list = field('saved-contacts');
+  const recipient = field('recipient').value.trim();
+  list.replaceChildren();
+  field('contact-list').hidden = contacts.length === 0;
+  field('toggle-contact').hidden = !isPublicKey(recipient) || recipient === ownKey;
+  field('toggle-contact').textContent = contacts.includes(recipient) ? 'Remove contact' : 'Save contact';
+  const recent = field('recent-contacts');
+  recent.replaceChildren();
+  field('recent-contact-list').hidden = ![...recentPeers].some((key) => !contacts.includes(key));
+  for (const key of new Set([...contacts, ...recentPeers])) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = authorLabel(key, key.slice(0, 10) + '…');
+    button.setAttribute('aria-pressed', String(key === recipient));
+    button.addEventListener('click', () => {
+      if (key === field('recipient').value.trim()) return;
+      field('recipient').value = key;
+      recipientChanged();
+      field('draft').focus();
+    });
+    (contacts.includes(key) ? list : recent).append(button);
+  }
+}
+
+function recipientChanged() {
+  field('draft').value = '';
+  field('error').textContent = '';
+  field('contact-status').textContent = '';
+  updateChatActions();
+  renderContacts();
+  if (!selectedRoom) renderDirect();
+}
+
+field('toggle-contact').addEventListener('click', () => {
+  const key = field('recipient').value.trim();
+  if (!isPublicKey(key) || key === ownKey) return;
+  const saved = contacts.includes(key);
+  const next = saved ? contacts.filter((entry) => entry !== key) : [...contacts, key];
+  try {
+    localStorage.setItem(contactsSlot, JSON.stringify(next));
+    contacts = next;
+    renderContacts();
+    field('contact-status').textContent = saved ? 'Contact removed.' : 'Contact saved.';
+  } catch {
+    field('contact-status').textContent = 'Could not update saved contacts.';
+  }
+});
 let authenticated = false;
+let sendingChat = false;
 const seen = new Set();
+const profileCacheSlot = 'patriothacks.check-ins.profile:' + ownKey;
 let profiles = {};
+try {
+  const cached = parseChatProfile(JSON.parse(localStorage.getItem(profileCacheSlot) ?? 'null'));
+  if (cached) profiles[ownKey] = cached;
+} catch {}
+
+function cacheOwnProfile() {
+  try {
+    if (profiles[ownKey]) localStorage.setItem(profileCacheSlot, JSON.stringify(profiles[ownKey]));
+  } catch {}
+}
 let savingProfile = false;
 let profilesReady = false;
 let signedIn = false;
@@ -53,13 +220,13 @@ function updateSignIn() {
   const profile = profiles[ownKey];
   const ready = authenticated && profilesReady;
   field('sign-in-card').hidden = signedIn;
-  field('existing-profile').hidden = signedIn || !ready || !profile;
+  field('existing-profile').hidden = signedIn || !profile;
   field('profile-details').hidden = !signedIn && (!ready || !!profile);
   field('profile-title').hidden = !signedIn;
   if (!signedIn && ready && !profile) field('profile-details').open = true;
   field('sign-in-name').textContent = profile ? profileLabel(profile) : '';
-  field('continue-chat').disabled = !ready || !profile;
-  field('sign-in-wait').hidden = ready;
+  field('continue-chat').disabled = !profile;
+  field('sign-in-wait').hidden = ready || !!profile;
 }
 
 function enterChat(profile) {
@@ -73,11 +240,12 @@ function enterChat(profile) {
 }
 
 field('continue-chat').addEventListener('click', () => {
-  if (authenticated && profilesReady && profiles[ownKey]) enterChat(profiles[ownKey]);
+  if (profiles[ownKey]) enterChat(profiles[ownKey]);
 });
 
 function updateProfileSummary() {
   updateSignIn();
+  renderContacts();
   field('profile-title').textContent = authorLabel(ownKey, 'Set up profile');
   if (selectedRoom) renderRoom();
   else renderDirect();
@@ -128,6 +296,23 @@ for (const channel of [...rooms, '']) {
 const roomMessages = new Map();
 const directMessages = [];
 let selectedRoom = '';
+let incidents = {};
+
+function renderIncident() {
+  const banner = field('incident-banner');
+  const active = incidents[selectedRoom] ?? [];
+  banner.hidden = !active.length;
+  const list = field('incident-items');
+  list.replaceChildren();
+  field('incident-offline').hidden = authenticated;
+  for (const { issue, count, latestAt } of active) {
+    const row = document.createElement('div');
+    const time = new Date(latestAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    row.textContent = incidentLabels[issue] + ' · ' + count + ' reports in the past ' +
+      incidentWindowMinutes + ' min · Latest ' + time;
+    list.append(row);
+  }
+}
 let reportOpen = false;
 let reportRequest = 0;
 let recentReports = [];
@@ -309,14 +494,22 @@ async function loadRoom(room) {
   }
 }
 
-function showDirect(key, text) {
-  directMessages.push({ key, text });
-  if (!selectedRoom) show(authorLabel(key, key === ownKey ? 'You' : 'From ' + key.slice(0, 10) + '…'), text);
+function showDirect(key, peer, text) {
+  directMessages.push({ key, peer, text });
+  if (!recentPeers.has(peer)) {
+    recentPeers.add(peer);
+    renderContacts();
+  }
+  if (!selectedRoom && field('recipient').value.trim() === peer) {
+    show(authorLabel(key, key === ownKey ? 'You' : 'From ' + key.slice(0, 10) + '…'), text);
+  }
 }
 
 function renderDirect() {
   field('messages').replaceChildren();
-  for (const { key, text } of directMessages) {
+  const recipient = field('recipient').value.trim();
+  for (const { key, peer, text } of directMessages) {
+    if (peer !== recipient) continue;
     show(authorLabel(key, key === ownKey ? 'You' : 'From ' + key.slice(0, 10) + '…'), text);
   }
 }
@@ -324,6 +517,7 @@ function renderDirect() {
 function selectChannel(channel) {
   if (channel === selectedRoom) return;
   selectedRoom = channel;
+  renderIncident();
   field('level-tabs').hidden = !channel;
   selectTab(false);
   for (const [name, button] of channelButtons) {
@@ -333,6 +527,7 @@ function selectChannel(channel) {
   field('direct').hidden = !!selectedRoom;
   field('room-note').hidden = !selectedRoom;
   field('recipient').required = !selectedRoom;
+  updateChatActions();
   field('draft').value = '';
   field('error').textContent = '';
   if (selectedRoom) renderRoom();
@@ -344,22 +539,42 @@ const socket = io(` + JSON.stringify(relay) + String.raw`, {
   auth: { publicKey: ownKey },
 });
 
+function updateChatActions() {
+  renderCheckIn();
+  field('send').disabled = !authenticated || sendingChat;
+  const recipient = field('recipient').value.trim();
+  field('sos').disabled = !authenticated || sendingChat ||
+    (!selectedRoom && (!isPublicKey(recipient) || recipient === ownKey));
+}
+
+field('recipient').addEventListener('input', recipientChanged);
+renderContacts();
+updateSignIn();
+
 function status(online, message) {
   authenticated = online;
+  renderIncident();
   field('status').textContent = message;
-  field('send').disabled = !online;
+  updateChatActions();
   field('save-profile').disabled = !online || savingProfile;
   updateSignIn();
   field('report-fields').disabled = !online;
 }
 
+socket.on(incidentEvent, (snapshot) => {
+  incidents = snapshot;
+  renderIncident();
+});
+
 socket.on(profileEvents.snapshot, (snapshot) => {
   profiles = snapshot;
+  cacheOwnProfile();
   profilesReady = true;
   updateProfileSummary();
 });
 socket.on(profileEvents.changed, (key, profile) => {
   profiles[key] = profile;
+  if (key === ownKey) cacheOwnProfile();
   updateProfileSummary();
 });
 
@@ -378,6 +593,7 @@ socket.on(events.challenge, async (challenge) => {
     if (!ack.ok) throw new Error(ack.error);
     if (socket.id === connection) {
       status(true, 'Relay connected');
+      void flushCheckIns();
       void loadRoom(selectedRoom);
       if (reportOpen) void updateReport({ hydrate: true });
     }
@@ -388,6 +604,7 @@ socket.on(events.challenge, async (challenge) => {
 
 function show(label, text) {
   const line = document.createElement('li');
+  if (text === sosMessage) line.className = 'sos-message';
   line.textContent = label + ': ' + text;
   field('messages').append(line);
   line.scrollIntoView({ block: 'nearest' });
@@ -406,7 +623,8 @@ socket.on(events.receive, (message) => {
         body.sentAt !== message.sentAt || typeof body.text !== 'string') return;
     const deliveryId = message.from + ':' + message.id;
     if (!seen.has(deliveryId)) {
-      showDirect(message.from, body.text);
+      showDirect(message.from, message.from, body.text);
+      rememberCheckIn(message, body.text);
       seen.add(deliveryId);
     }
     socket.emit(events.received, message.from, message.id);
@@ -415,41 +633,61 @@ socket.on(events.receive, (message) => {
   }
 });
 
-field('chat').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  if (!authenticated || field('send').disabled) return;
+function makeDirectEnvelope(to, text) {
+  const id = crypto.randomUUID();
+  const sentAt = Date.now();
+  const nonce = nacl.randomBytes(nacl.box.nonceLength);
+  const plaintext = new TextEncoder().encode(JSON.stringify({ id, from: ownKey, to, sentAt, text }));
+  const ciphertext = nacl.box(plaintext, nonce, bytes(to), keys.secretKey);
+  return { v: 1, id, from: ownKey, to, sentAt, nonce: base64(nonce), ciphertext: base64(ciphertext) };
+}
+
+async function sendDirectEnvelope(message) {
+  const ack = await socket.timeout(5000).emitWithAck(events.send, message);
+  if (!ack.ok) throw new Error(ack.error);
+}
+
+setInterval(() => { void flushCheckIns(); }, 5000);
+
+async function sendChat(sos = false) {
+  if (!authenticated || sendingChat) return;
   field('error').textContent = '';
   const to = field('recipient').value.trim();
   const draft = field('draft');
-  const text = draft.value.trim();
+  const text = sos ? sosMessage : draft.value.trim();
   const room = selectedRoom;
   if (!room && (!isPublicKey(to) || to === ownKey)) {
     field('error').textContent = 'Paste the other device’s public key.';
     return;
   }
   if (!text) return;
-  field('send').disabled = true;
+  sendingChat = true;
+  updateChatActions();
   try {
     if (room) {
       const ack = await socket.timeout(5000).emitWithAck(roomEvents.send, room, text);
       if (!ack.ok) throw new Error(ack.error);
-      if (selectedRoom === room && draft.value.trim() === text) draft.value = '';
+      if (!sos && selectedRoom === room && draft.value.trim() === text) draft.value = '';
       return;
     }
-    const id = crypto.randomUUID();
-    const sentAt = Date.now();
-    const nonce = nacl.randomBytes(nacl.box.nonceLength);
-    const plaintext = new TextEncoder().encode(JSON.stringify({ id, from: ownKey, to, sentAt, text }));
-    const ciphertext = nacl.box(plaintext, nonce, bytes(to), keys.secretKey);
-    const message = { v: 1, id, from: ownKey, to, sentAt, nonce: base64(nonce), ciphertext: base64(ciphertext) };
-    const ack = await socket.timeout(5000).emitWithAck(events.send, message);
-    if (!ack.ok) throw new Error(ack.error);
-    showDirect(ownKey, text);
-    if (!selectedRoom && draft.value.trim() === text) draft.value = '';
+    await sendDirectEnvelope(makeDirectEnvelope(to, text));
+    showDirect(ownKey, to, text);
+    if (!sos && !selectedRoom && field('recipient').value.trim() === to && draft.value.trim() === text) draft.value = '';
   } catch (error) {
     field('error').textContent = error.message;
   } finally {
-    field('send').disabled = !authenticated;
+    sendingChat = false;
+    updateChatActions();
+  }
+}
+
+field('chat').addEventListener('submit', (event) => {
+  event.preventDefault();
+  void sendChat();
+});
+field('sos').addEventListener('click', () => {
+  if (window.confirm('Post an in-app SOS to ' + (selectedRoom || 'this direct chat') + '?')) {
+    void sendChat(true);
   }
 });
 
@@ -494,9 +732,23 @@ input,textarea,select{background:#1f2d3c;color:inherit;width:100%}
 button{background:#a6e6ce;color:#102624;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
 .key{display:flex;gap:8px}
+#saved-contacts,#recent-contacts{display:flex;flex-wrap:wrap;gap:8px}
+#saved-contacts button,#recent-contacts button{background:#36363d;color:white}
+#saved-contacts button[aria-pressed="true"],#recent-contacts button[aria-pressed="true"]{background:#a6e6ce;color:#102624}
+#toggle-contact{margin-top:8px}
+#check-in{background:#303036;border-radius:8px;padding:12px;margin-top:12px}
+#check-in button{margin:4px 4px 0 0}
+#check-in-help{background:#881337;color:#fff1f2}
+#check-in-pending{color:#fbbf24}
 ul{min-height:120px;max-height:40vh;overflow:auto;padding:12px 12px 12px 32px;background:#172230;border-radius:6px}
 li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 #error{color:#ffbaad}
+.status-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+#local-clock{color:#edf3fa;font-size:.875rem;font-variant-numeric:tabular-nums}
+#incident-banner{background:#432b13;color:#fef3c7;border:1px solid #a16207;border-radius:8px;padding:10px 12px;margin:12px 0}
+#incident-items,#incident-offline{font-size:.9rem;margin-top:4px}
+#sos,.sos-message{background:#881337;color:#fff1f2}
+.sos-message{font-weight:700;border:1px solid #fb7185;border-radius:8px;padding:8px}
 #level-tabs button{background:#36363d;color:white;margin-right:6px}
 #level-tabs button[aria-pressed="true"]{background:#a6e6ce;color:#102624}
 #poll-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
@@ -526,7 +778,10 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <button type="button" id="continue-chat" disabled>Continue to chat</button>
 </div>
 </section>
+<div class="status-row">
 <p id="status" role="status">Connecting to relay…</p>
+<div id="local-clock" role="timer" aria-label="Local time"></div>
+</div>
 <details id="profile-details" hidden>
 <summary id="profile-title">Set up profile</summary>
 <form id="profile-form">
@@ -545,7 +800,7 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <p id="identity-note">This browser profile keeps your chat identity on this PC.</p>
 <div id="level-tabs" hidden>
 <button type="button" id="chat-tab" aria-pressed="true">Chat</button>
-<button type="button" id="announcements-tab" aria-pressed="false">Announcements</button>
+<button type="button" id="announcements-tab" aria-pressed="false">Stats</button>
 </div>
 <form id="report" hidden>
 <h3>Level conditions</h3>
@@ -574,16 +829,39 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <p id="report-status" role="status"></p>
 </form>
 <form id="chat">
+<section id="incident-banner" role="status" hidden>
+<strong>Early warning · Resident reports</strong>
+<div id="incident-offline" hidden>Relay offline · Showing last received warning</div>
+<div id="incident-items"></div>
+</section>
 <p id="room-note" hidden>Open demo room · Messages are visible to the relay.</p>
 <div id="direct">
+<section id="contact-list" hidden>
+<h3>Saved contacts</h3>
+<div id="saved-contacts"></div>
+</section>
+<section id="recent-contact-list" hidden>
+<h3>Recent chats</h3>
+<div id="recent-contacts"></div>
+</section>
 <label for="recipient">Recipient public key</label>
 <input id="recipient" spellcheck="false" autocomplete="off" required>
+<button type="button" id="toggle-contact" hidden>Save contact</button>
+<p id="contact-status" role="status"></p>
+<section id="check-in" aria-label="Contact check-in" hidden>
+<div id="check-in-latest" role="status"></div>
+<div id="check-in-pending" role="status"></div>
+<button type="button" id="check-in-okay">I’m okay</button>
+<button type="button" id="check-in-request">Request a check-in</button>
+<button type="button" id="check-in-help">I need help</button>
+</section>
 </div>
 <ul id="messages" aria-label="Messages" aria-live="polite"></ul>
 <label for="draft">Message</label>
 <textarea id="draft" rows="3" maxlength="2000" required></textarea>
 <p id="error" role="alert"></p>
 <button id="send" disabled>Send</button>
+<button type="button" id="sos" disabled>Send SOS</button>
 </form>
 </div>
 </main>

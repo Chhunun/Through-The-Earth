@@ -143,3 +143,41 @@ export function parseChatProfile(input: unknown): ChatProfile | undefined {
 export function profileLabel(profile: ChatProfile) {
   return profile.name + ' · ' + profile.level;
 }
+
+export const sosMessage = 'SOS — I need help.';
+
+export const checkInMessages = {
+  okay: 'Check-in — I’m okay.',
+  help: sosMessage,
+  request: 'Check-in request — are you okay?',
+} as const;
+export type CheckIn = keyof typeof checkInMessages;
+
+export function checkInStatus(text: string) {
+  if (text === checkInMessages.okay) return 'I’m okay';
+  if (text === checkInMessages.help) return 'Needs help';
+}
+
+export const incidentEvent = 'incident:snapshot';
+export const incidentThreshold = 2;
+export const incidentWindowMinutes = 60;
+export const incidentLabels = {
+  power: 'Power disruption',
+  airflow: 'Reduced airflow',
+} as const;
+export type IncidentIssue = keyof typeof incidentLabels;
+
+export interface LevelIncident {
+  issue: IncidentIssue;
+  count: number;
+  latestAt: number;
+}
+
+export type IncidentSnapshot = Record<Room, LevelIncident[]>;
+
+export function localClock(now = new Date()) {
+  return {
+    date: now.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }),
+    time: now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+  };
+}

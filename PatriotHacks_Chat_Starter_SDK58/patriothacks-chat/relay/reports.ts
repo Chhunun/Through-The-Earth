@@ -1,5 +1,6 @@
 import {
-  reportQuestions, type LevelReport, type LevelReportView, type PublishedLevelReport, type Room,
+  incidentThreshold, incidentWindowMinutes, reportQuestions, rooms,
+  type IncidentSnapshot, type LevelIncident, type LevelReport, type LevelReportView, type PublishedLevelReport, type Room,
 } from '@patriot/protocol';
 
 const reports = new Map<Room, Map<string, PublishedLevelReport>>();
@@ -56,4 +57,28 @@ export function readReports(room: Room, key: string): LevelReportView {
       averageTemperatureF: temperatureCount ? sum / temperatureCount : undefined,
     },
   };
+}
+
+export function incidentSnapshot(now = Date.now()): IncidentSnapshot {
+  const cutoff = now - incidentWindowMinutes * 60_000;
+  const snapshot: IncidentSnapshot = { 'Upper Level': [], 'Middle Level': [], 'Lower Levels': [] };
+  for (const room of rooms) {
+    const active = [...(reports.get(room)?.values() ?? [])].filter(
+      (report) => report.submittedAt > cutoff && report.submittedAt <= now,
+    );
+    const issues: { issue: LevelIncident['issue']; matches: (report: PublishedLevelReport) => boolean }[] = [
+      { issue: 'power', matches: ({ answers }) => Boolean(answers.power && answers.power !== 'None observed') },
+      { issue: 'airflow', matches: ({ answers }) => Boolean(answers.air && answers.air !== 'None observed') },
+    ];
+    for (const { issue, matches } of issues) {
+      const matching = active.filter(matches);
+      if (matching.length < incidentThreshold) continue;
+      snapshot[room].push({
+        issue,
+        count: matching.length,
+        latestAt: Math.max(...matching.map(({ submittedAt }) => submittedAt)),
+      });
+    }
+  }
+  return snapshot;
 }

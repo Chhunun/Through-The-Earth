@@ -1,8 +1,9 @@
+import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 import { decryptMessage, encryptMessage, publicKey } from './crypto';
-import { history, save } from './storage';
+import { history, queuedCheckIns, queueCheckIn, removeCheckIn, save } from './storage';
 import { connectRelay } from './transport';
-import type { ChatProfiles, Envelope, Room, RoomMessage } from '@patriot/protocol';
+import { checkInMessages, parseChatProfile, type CheckIn, type IncidentSnapshot, type ChatProfile, type ChatProfiles, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 type Message = Envelope & { text: string };
 export const useChat = create<{
@@ -10,10 +11,12 @@ export const useChat = create<{
   profiles: ChatProfiles;
   profilesReady: boolean;
   online: boolean;
+  incidents: Partial<IncidentSnapshot>;
   relayError: string;
   messages: Message[];
+  pendingCheckIns: Envelope[];
   roomMessages: Partial<Record<Room, RoomMessage[]>>;
-}>(() => ({ key: '', profiles: {}, profilesReady: false, online: false, relayError: '', messages: [], roomMessages: {} }));
+}>(() => ({ key: '', profiles: {}, profilesReady: false, online: false, incidents: {}, relayError: '', messages: [], pendingCheckIns: [], roomMessages: {} }));
 
 async function display(envelope: Envelope) {
   const message = { ...envelope, text: await decryptMessage(envelope) };
@@ -34,6 +37,22 @@ function mergeRoom(room: Room, history: RoomMessage[], live?: RoomMessage) {
   });
 }
 
+const cachedProfileSlot = 'patriot-chat.profile-cache';
+
+async function loadCachedProfile(key: string) {
+  try {
+    const raw = await SecureStore.getItemAsync(cachedProfileSlot);
+    const saved = raw ? JSON.parse(raw) : undefined;
+    if (saved?.key === key) return parseChatProfile(saved.profile);
+  } catch {
+    // An unavailable cache should not affect online sign-in.
+  }
+}
+
+function cacheProfile(key: string, profile: ChatProfile) {
+  void SecureStore.setItemAsync(cachedProfileSlot, JSON.stringify({ key, profile })).catch(() => {});
+}
+
 export async function startChat(isActive: () => boolean) {
   const key = await publicKey();
   const messages: Message[] = [];
@@ -44,23 +63,63 @@ export async function startChat(isActive: () => boolean) {
       // An unreadable row should not make the rest of the history inaccessible.
     }
   }
+  const [pendingCheckIns, cachedProfile] = await Promise.all([queuedCheckIns(key), loadCachedProfile(key)]);
   if (!isActive()) return;
-  useChat.setState({ key, messages, profiles: {}, profilesReady: false, online: false, relayError: '' });
+  useChat.setState({ key, messages, pendingCheckIns, profiles: cachedProfile ? { [key]: cachedProfile } : {}, profilesReady: false, online: false, incidents: {}, relayError: '' });
   const url = process.env.EXPO_PUBLIC_RELAY_URL;
   if (!url) {
     useChat.setState({ relayError: 'Set EXPO_PUBLIC_RELAY_URL in mobile/.env' });
     return;
   }
   const relay = connectRelay(url, key, display, (message) => mergeRoom(message.room, [], message),
-    (profiles, replace) => useChat.setState((state) => ({
-      profiles: replace ? profiles : { ...state.profiles, ...profiles },
-      profilesReady: replace || state.profilesReady,
-    })),
+    (profiles, replace) => {
+      if (profiles[key]) cacheProfile(key, profiles[key]);
+      useChat.setState((state) => ({
+        profiles: replace ? profiles : { ...state.profiles, ...profiles },
+        profilesReady: replace || state.profilesReady,
+      }));
+    },
+    (incidents) => useChat.setState({ incidents }),
     (online, error) => {
-    useChat.setState({ online, relayError: error ?? '' });
-  });
+      useChat.setState({ online, relayError: error ?? '' });
+      if (online) void flushCheckIns();
+    });
+  let flushing = false;
+
+  async function flushCheckIns() {
+    if (flushing || !isActive() || !useChat.getState().online) return;
+    flushing = true;
+    try {
+      for (const envelope of await queuedCheckIns(key)) {
+        if (!isActive() || !useChat.getState().online) break;
+        await relay.send(envelope);
+        await display(envelope);
+        await removeCheckIn(envelope);
+        if (isActive()) useChat.setState(({ pendingCheckIns }) => ({
+          pendingCheckIns: pendingCheckIns.filter((item) => item.id !== envelope.id),
+        }));
+      }
+    } catch {
+      // Keep the original encrypted envelope queued for retry.
+    } finally {
+      flushing = false;
+    }
+  }
+
+  const retry = setInterval(() => { void flushCheckIns(); }, 5000);
   return {
-    close: relay.close,
+    close() {
+      clearInterval(retry);
+      relay.close();
+    },
+    async checkIn(to: string, kind: CheckIn) {
+      const envelope = await encryptMessage(to, checkInMessages[kind]);
+      await queueCheckIn(envelope);
+      if (isActive()) useChat.setState(({ pendingCheckIns }) => ({
+        pendingCheckIns: [...pendingCheckIns, envelope],
+      }));
+      void flushCheckIns();
+    },
     sendRoom: relay.sendRoom,
     levelReport: relay.levelReport,
     saveProfile: relay.saveProfile,
