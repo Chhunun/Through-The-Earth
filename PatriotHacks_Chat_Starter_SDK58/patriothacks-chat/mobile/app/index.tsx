@@ -15,7 +15,16 @@ import { startChat, useChat } from '../src/chat';
 // The list only needs these fields from either a room message or a direct message.
 type ChatItem = Pick<RoomMessage, 'id' | 'from' | 'text'>;
 
-export default function ChatScreen() {
+export default function ChatRoute() {
+  // Keep both sign-in and chat clear of the status bar and home indicator.
+  return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#020617' }} edges={['top', 'right', 'bottom', 'left']}>
+        <ChatScreen />
+      </SafeAreaView>
+  );
+}
+
+function ChatScreen() {
   // Shared state comes from the chat store. The useState calls below hold screen-only state.
   const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents } = useChat();
   // Refs keep the connection and list handles across renders without causing a redraw.
@@ -114,7 +123,7 @@ export default function ChatScreen() {
     return (
         <KeyboardAvoidingView className="flex-1 bg-slate-950"
                               behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                              keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
+                              keyboardVerticalOffset={0}>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}>
             <View className="gap-3 rounded-2xl bg-zinc-900 p-5">
               <View className="flex-row flex-wrap justify-between gap-3">
@@ -177,12 +186,11 @@ export default function ChatScreen() {
   }
 
   return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#020617' }} edges={['top', 'bottom']}>
-        <KeyboardAvoidingView
-            className="flex-1 bg-slate-950"
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={0}
-        >
+      <KeyboardAvoidingView
+          className="flex-1 bg-slate-950"
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={0}
+      >
 
         {/* POLISH 1: Header. Start with padding, spacing, and title size. The first row holds relay status and the clock. */}
         <View className="gap-3 border-b border-slate-800 p-5">
@@ -359,4 +367,3 @@ export default function ChatScreen() {
       </KeyboardAvoidingView>
   );
 }
-
