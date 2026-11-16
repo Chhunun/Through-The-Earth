@@ -1,11 +1,11 @@
 import { profiles, storeProfile } from './profiles.js';
-import { validateReport, saveReport, readReports, incidentSnapshot } from './reports.js';
+import { validateReport, saveReport, readReports, incidentSnapshot, severeReports } from './reports.js';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { Server } from 'socket.io';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, isRoom, incidentEvent, parseChatProfile, profileEvents, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
+import { events, isEnvelope, isPublicKey, isRoom, incidentEvent, levelPresenceEvent, severeReportsEvent, parseChatProfile, type LevelPresence, profileEvents, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 const app = express();
 app.get('/health', (_request, response) => response.json({ ok: true }));
@@ -23,6 +23,17 @@ io.use((socket, next) => {
   next();
 });
 
+const activeAccounts = new Map<string, number>();
+
+function publishPresence() {
+  const counts: LevelPresence = { 'Upper Level': 0, 'Middle Level': 0, 'Lower Levels': 0 };
+  for (const key of activeAccounts.keys()) {
+    const level = profiles[key]?.level;
+    if (level) counts[level]++;
+  }
+  io.to('room-readers').emit(levelPresenceEvent, counts);
+}
+
 io.on('connection', (socket) => {
   const key: string = socket.data.publicKey;
   const token = randomBytes(32);
@@ -30,7 +41,14 @@ io.on('connection', (socket) => {
   const ciphertext = nacl.box(token, nonce, Buffer.from(key, 'base64'), relayKeys.secretKey);
   let authenticated = false;
   const deadline = setTimeout(() => socket.disconnect(true), 10_000);
-  socket.on('disconnect', () => clearTimeout(deadline));
+  socket.on('disconnect', () => {
+    clearTimeout(deadline);
+    if (!authenticated) return;
+    const remaining = (activeAccounts.get(key) ?? 1) - 1;
+    if (remaining) activeAccounts.set(key, remaining);
+    else activeAccounts.delete(key);
+    publishPresence();
+  });
   socket.emit(events.challenge, {
     publicKey: Buffer.from(relayKeys.publicKey).toString('base64'),
     nonce: nonce.toString('base64'),
@@ -46,10 +64,14 @@ io.on('connection', (socket) => {
     }
     clearTimeout(deadline);
     await socket.join([room(key), "room-readers"]);
+    if (!socket.connected) return;
     authenticated = true;
+    activeAccounts.set(key, (activeAccounts.get(key) ?? 0) + 1);
     reply({ ok: true });
     socket.emit(profileEvents.snapshot, profiles);
     socket.emit(incidentEvent, incidentSnapshot());
+    socket.emit(severeReportsEvent, severeReports());
+    publishPresence();
     for (const message of pending.get(key)?.values() ?? []) socket.emit(events.receive, message);
   });
 
@@ -89,6 +111,7 @@ io.on('connection', (socket) => {
         return;
       }
       io.to('room-readers').emit(profileEvents.changed, key, profile);
+      publishPresence();
       reply({ ok: true });
     } catch (error) {
       console.error('Could not save profile:', error);
@@ -150,6 +173,7 @@ io.on('connection', (socket) => {
 
 function publishIncidents() {
   io.to('room-readers').emit(incidentEvent, incidentSnapshot());
+  io.to('room-readers').emit(severeReportsEvent, severeReports());
 }
 
 const incidentTimer = setInterval(publishIncidents, 30_000);

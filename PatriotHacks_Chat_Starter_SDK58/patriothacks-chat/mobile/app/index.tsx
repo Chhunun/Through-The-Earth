@@ -26,7 +26,7 @@ export default function ChatRoute() {
 
 function ChatScreen() {
   // Shared state comes from the chat store. The useState calls below hold screen-only state.
-  const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents } = useChat();
+  const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents, presence, severeReports } = useChat();
   // Refs keep the connection and list handles across renders without causing a redraw.
   const session = useRef<Awaited<ReturnType<typeof startChat>>>(undefined);
   const chatList = useRef<FlatList<ChatItem>>(null);
@@ -201,7 +201,7 @@ function ChatScreen() {
           {/* Channel navigation stays on the left. Tap the profile on the right to edit it. */}
           <View className="flex-row items-center justify-between gap-3">
             <Pressable accessibilityRole="button" accessibilityLabel="Open channels"
-                       className="rounded-lg bg-zinc-800 px-3 py-3"
+                       className="min-h-14 min-w-0 flex-1 justify-center rounded-lg bg-zinc-800 px-3 py-2"
                        onPress={() => {
                          Keyboard.dismiss();
                          setChannelsOpen(true);
@@ -212,7 +212,7 @@ function ChatScreen() {
                        accessibilityValue={{ text: profile ? profileLabel(profile) : undefined }}
                        accessibilityState={{ expanded: editingProfile }}
                        onPress={() => setEditingProfile((open) => !open)}
-                       className="min-w-0 flex-1 items-end rounded-lg bg-zinc-800 px-3 py-2">
+                       className="min-h-14 min-w-0 flex-1 items-end justify-center rounded-lg bg-zinc-800 px-3 py-2">
               <Text numberOfLines={1} className="max-w-full text-right font-semibold text-zinc-100">
                 {profile?.name ?? 'Set up profile'}
               </Text>
@@ -250,8 +250,11 @@ function ChatScreen() {
                                    setError('');
                                  }}>
                         <Text className={room === option ? 'font-semibold text-white' : 'text-zinc-400'}>
-                          {option ? '#  ' + option : 'Direct chat'}
+                          {option ?? 'Direct chat'}
                         </Text>
+                          {option ? <Text className="text-xs text-zinc-400">
+                            {online && presence ? presence[option] + ' online' : 'Online count unavailable'}
+                          </Text> : null}
                       </Pressable>
                   ))}
                 </View>
@@ -314,6 +317,19 @@ function ChatScreen() {
           </>}
         </View>
         {/* Resident-report warnings belong above level chat. Keep counts and timestamps readable on small screens. */}
+        {room && !announcements && severeReports[room]?.length ? (
+          <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-lg border border-rose-500 bg-rose-950 px-3 py-2">
+            <Text className="font-bold text-rose-100">Severe · Resident reports</Text>
+            {!online ? <Text className="text-xs text-rose-200">Relay offline · Showing last received warning</Text> : null}
+            <ScrollView style={{ maxHeight: 92 }} nestedScrollEnabled>
+              {severeReports[room].map(({ question, answer, count, latestAt }) => (
+                <Text key={question} className="mb-1 text-xs text-rose-100">
+                  {question}: {answer} · {count} {count === 1 ? 'report' : 'reports'} · {new Date(latestAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </Text>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
         {room && !announcements && incidents[room]?.length ? (
             <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-lg border border-amber-700 bg-amber-950 px-3 py-2">
               <Text className="font-semibold text-amber-100">Early warning · Resident reports</Text>
@@ -350,7 +366,7 @@ function ChatScreen() {
           {/* POLISH 3: Composer. Tune spacing, touch targets, and contrast here. Test with the iPhone keyboard open. */}
           <View className="gap-2 border-t border-slate-800 p-4">
             <Text accessibilityRole="header" className="text-sm font-semibold text-zinc-100">
-              {room ? '# ' + room : 'Direct chat'}
+              {room ? room + (online && presence ? ' · ' + presence[room] + ' online' : '') : 'Direct chat'}
             </Text>
             {error || relayError ? <Text className="text-rose-300">{error || relayError}</Text> : null}
             <View className="flex-row items-center gap-2">

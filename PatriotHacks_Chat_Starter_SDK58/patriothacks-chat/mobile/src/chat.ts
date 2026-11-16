@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { decryptMessage, encryptMessage, publicKey } from './crypto';
 import { history, queuedCheckIns, queueCheckIn, removeCheckIn, save } from './storage';
 import { connectRelay } from './transport';
-import { checkInMessages, parseChatProfile, type CheckIn, type IncidentSnapshot, type ChatProfile, type ChatProfiles, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
+import { checkInMessages, parseChatProfile, type CheckIn, type IncidentSnapshot, type LevelPresence, type SevereReports, type ChatProfile, type ChatProfiles, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 type Message = Envelope & { text: string };
 export const useChat = create<{
@@ -12,11 +12,13 @@ export const useChat = create<{
   profilesReady: boolean;
   online: boolean;
   incidents: Partial<IncidentSnapshot>;
+  presence?: LevelPresence;
+  severeReports: Partial<SevereReports>;
   relayError: string;
   messages: Message[];
   pendingCheckIns: Envelope[];
   roomMessages: Partial<Record<Room, RoomMessage[]>>;
-}>(() => ({ key: '', profiles: {}, profilesReady: false, online: false, incidents: {}, relayError: '', messages: [], pendingCheckIns: [], roomMessages: {} }));
+}>(() => ({ key: '', profiles: {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, relayError: '', messages: [], pendingCheckIns: [], roomMessages: {} }));
 
 async function display(envelope: Envelope) {
   const message = { ...envelope, text: await decryptMessage(envelope) };
@@ -65,7 +67,7 @@ export async function startChat(isActive: () => boolean) {
   }
   const [pendingCheckIns, cachedProfile] = await Promise.all([queuedCheckIns(key), loadCachedProfile(key)]);
   if (!isActive()) return;
-  useChat.setState({ key, messages, pendingCheckIns, profiles: cachedProfile ? { [key]: cachedProfile } : {}, profilesReady: false, online: false, incidents: {}, relayError: '' });
+  useChat.setState({ key, messages, pendingCheckIns, profiles: cachedProfile ? { [key]: cachedProfile } : {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, relayError: '' });
   const url = process.env.EXPO_PUBLIC_RELAY_URL;
   if (!url) {
     useChat.setState({ relayError: 'Set EXPO_PUBLIC_RELAY_URL in mobile/.env' });
@@ -80,7 +82,10 @@ export async function startChat(isActive: () => boolean) {
       }));
     },
     (incidents) => useChat.setState({ incidents }),
+    (presence) => useChat.setState({ presence }),
+    (severeReports) => useChat.setState({ severeReports }),
     (online, error) => {
+      if (!online) useChat.setState({ presence: undefined });
       useChat.setState({ online, relayError: error ?? '' });
       if (online) void flushCheckIns();
     });

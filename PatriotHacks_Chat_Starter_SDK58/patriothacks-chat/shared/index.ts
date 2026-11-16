@@ -181,3 +181,15 @@ export function localClock(now = new Date()) {
     time: now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
   };
 }
+
+export const levelPresenceEvent = 'level:presence';
+export type LevelPresence = Record<Room, number>;
+
+export const severeReportsEvent = 'report:severe';
+export interface SevereReportSummary {
+  question: string;
+  answer: string;
+  count: number;
+  latestAt: number;
+}
+export type SevereReports = Record<Room, SevereReportSummary[]>;
