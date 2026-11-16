@@ -198,8 +198,8 @@ function ChatScreen() {
             <Text className="text-sm text-slate-300">{online ? 'Relay connected' : 'Relay offline'}</Text>
             <LocalClock />
           </View>
-          {/* Channel button and current conversation title. The drawer itself is below. */}
-          <View className="flex-row items-center gap-3">
+          {/* Channel navigation stays on the left. Tap the profile on the right to edit it. */}
+          <View className="flex-row items-center justify-between gap-3">
             <Pressable accessibilityRole="button" accessibilityLabel="Open channels"
                        className="rounded-lg bg-zinc-800 px-3 py-3"
                        onPress={() => {
@@ -208,20 +208,21 @@ function ChatScreen() {
                        }}>
               <Text className="font-semibold text-zinc-100">☰ Channels</Text>
             </Pressable>
-            <Text className="flex-1 text-lg font-semibold text-zinc-100">
-              {room ? '# ' + room : 'Direct chat'}
-            </Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Edit chat profile"
+                       accessibilityValue={{ text: profile ? profileLabel(profile) : undefined }}
+                       accessibilityState={{ expanded: editingProfile }}
+                       onPress={() => setEditingProfile((open) => !open)}
+                       className="min-w-0 flex-1 items-end rounded-lg bg-zinc-800 px-3 py-2">
+              <Text numberOfLines={1} className="max-w-full text-right font-semibold text-zinc-100">
+                {profile?.name ?? 'Set up profile'}
+              </Text>
+              {profile ? <Text className="text-right text-xs text-zinc-300">{profile.level}</Text> : null}
+            </Pressable>
           </View>
-          {/* Profile controls currently sit in the chat header. This is the block to move if you add a settings sheet. */}
           {editingProfile ? (
               <ProfileEditor profile={profile} online={online} save={saveProfile}
                              close={() => setEditingProfile(false)} />
-          ) : (
-              <Pressable accessibilityRole="button" accessibilityLabel="Edit chat profile"
-                         onPress={() => setEditingProfile(true)} className="self-start rounded-md bg-zinc-800 px-3 py-2">
-                <Text className="text-zinc-100">{profile ? profileLabel(profile) : 'Set up profile'}</Text>
-              </Pressable>
-          )}
+          ) : null}
           {/* Channel drawer. Change panel width and selected-row styling here. */}
           <Modal visible={channelsOpen} transparent animationType="fade"
                  onRequestClose={() => setChannelsOpen(false)}>
@@ -348,6 +349,9 @@ function ChatScreen() {
                               )} />
           {/* POLISH 3: Composer. Tune spacing, touch targets, and contrast here. Test with the iPhone keyboard open. */}
           <View className="gap-2 border-t border-slate-800 p-4">
+            <Text accessibilityRole="header" className="text-sm font-semibold text-zinc-100">
+              {room ? '# ' + room : 'Direct chat'}
+            </Text>
             {error || relayError ? <Text className="text-rose-300">{error || relayError}</Text> : null}
             <View className="flex-row items-center gap-2">
               <Pressable accessibilityRole="button" accessibilityLabel="Send SOS" disabled={!canSendAlert}
