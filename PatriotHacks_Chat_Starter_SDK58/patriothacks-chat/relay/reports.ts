@@ -1,6 +1,6 @@
 import {
   incidentThreshold, incidentWindowMinutes, reportQuestions, rooms,
-  type IncidentSnapshot, type LevelIncident, type LevelReport, type LevelReportView, type PublishedLevelReport, type Room, type SevereReports,
+  type IncidentSnapshot, type LevelIncident, type LevelReport, type LevelReportView, type PublishedLevelReport, type Room, type SevereReports, type LevelTemperature, type LevelTemperatures,
 } from '@patriot/protocol';
 
 const reports = new Map<Room, Map<string, PublishedLevelReport>>();
@@ -37,25 +37,39 @@ export function readReports(room: Room, key: string): LevelReportView {
   const counts: Record<string, number[]> = Object.fromEntries(
     reportQuestions.map(({ id, choices }) => [id, choices.map(() => 0)]),
   );
-  let sum = 0;
-  let temperatureCount = 0;
   for (const report of level?.values() ?? []) {
     for (const { id, choices } of reportQuestions) {
       const index = (choices as readonly string[]).indexOf(report.answers[id] ?? '');
       if (index >= 0) counts[id][index]++;
     }
-    if (report.temperatureF !== undefined) {
-      sum += report.temperatureF;
-      temperatureCount++;
-    }
   }
+  const temperature = averageTemperature(room);
   return {
     own: level?.get(key) ?? { answers: {} },
     recent: Array.from(level?.values() ?? []).reverse(),
     summary: {
-      reports: level?.size ?? 0, counts, temperatureCount,
-      averageTemperatureF: temperatureCount ? sum / temperatureCount : undefined,
+      reports: level?.size ?? 0, counts, temperatureCount: temperature.count,
+      averageTemperatureF: temperature.averageF ?? undefined,
     },
+  };
+}
+
+function averageTemperature(room: Room): LevelTemperature {
+  let sum = 0;
+  let count = 0;
+  for (const { temperatureF } of reports.get(room)?.values() ?? []) {
+    if (temperatureF === undefined) continue;
+    sum += temperatureF;
+    count++;
+  }
+  return { count, averageF: count ? sum / count : null };
+}
+
+export function levelTemperatures(): LevelTemperatures {
+  return {
+    'Upper Level': averageTemperature('Upper Level'),
+    'Middle Level': averageTemperature('Middle Level'),
+    'Lower Levels': averageTemperature('Lower Levels'),
   };
 }
 

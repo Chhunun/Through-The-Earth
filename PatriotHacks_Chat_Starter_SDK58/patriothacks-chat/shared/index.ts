@@ -193,3 +193,10 @@ export interface SevereReportSummary {
   latestAt: number;
 }
 export type SevereReports = Record<Room, SevereReportSummary[]>;
+
+export const levelTemperatureEvent = 'level:temperature';
+export interface LevelTemperature {
+  count: number;
+  averageF: number | null;
+}
+export type LevelTemperatures = Record<Room, LevelTemperature>;

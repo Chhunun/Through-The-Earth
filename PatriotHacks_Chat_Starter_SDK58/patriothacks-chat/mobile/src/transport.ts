@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { events, isEnvelope, incidentEvent, levelPresenceEvent, severeReportsEvent, type LevelPresence, type SevereReports, type IncidentSnapshot, profileEvents, reportEvents, type ChatProfile, type ChatProfiles, roomEvents, type LevelReport, type LevelReportResult, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
+import { events, isEnvelope, incidentEvent, levelPresenceEvent, levelTemperatureEvent, type LevelTemperatures, severeReportsEvent, type LevelPresence, type SevereReports, type IncidentSnapshot, profileEvents, reportEvents, type ChatProfile, type ChatProfiles, roomEvents, type LevelReport, type LevelReportResult, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
 import { proveIdentity } from './crypto';
 
 export function connectRelay(
@@ -11,6 +11,7 @@ export function connectRelay(
   onIncidents: (snapshot: IncidentSnapshot) => void,
   onPresence: (counts: LevelPresence) => void,
   onSevereReports: (reports: SevereReports) => void,
+  onTemperatures: (temperatures: LevelTemperatures) => void,
   onStatus: (online: boolean, error?: string) => void,
 ) {
   const socket = io(url, { auth: { publicKey: key }, autoConnect: false });
@@ -56,6 +57,7 @@ export function connectRelay(
   socket.on(incidentEvent, onIncidents);
   socket.on(levelPresenceEvent, onPresence);
   socket.on(severeReportsEvent, onSevereReports);
+  socket.on(levelTemperatureEvent, onTemperatures);
   socket.connect();
 
   return {

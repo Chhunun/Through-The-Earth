@@ -1,3 +1,4 @@
+import TemperatureBar from '../src/TemperatureBar';
 // Mobile UI polish: start with POLISH 1 (header), then POLISH 2 (bubbles),
 // then POLISH 3 (composer). Save after each edit and check in Expo Go.
 // Change className values first. Leave connection and send logic alone for visual edits.
@@ -26,7 +27,7 @@ export default function ChatRoute() {
 
 function ChatScreen() {
   // Shared state comes from the chat store. The useState calls below hold screen-only state.
-  const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents, presence, severeReports } = useChat();
+  const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents, presence, severeReports, temperatures } = useChat();
   // Refs keep the connection and list handles across renders without causing a redraw.
   const session = useRef<Awaited<ReturnType<typeof startChat>>>(undefined);
   const chatList = useRef<FlatList<ChatItem>>(null);
@@ -201,7 +202,7 @@ function ChatScreen() {
           {/* Channel navigation stays on the left. Tap the profile on the right to edit it. */}
           <View className="flex-row items-center justify-between gap-3">
             <Pressable accessibilityRole="button" accessibilityLabel="Open channels"
-                       className="min-h-14 min-w-0 flex-1 justify-center rounded-lg bg-zinc-800 px-3 py-2"
+                       hitSlop={5} className="h-9 justify-center rounded-lg bg-zinc-800 px-2"
                        onPress={() => {
                          Keyboard.dismiss();
                          setChannelsOpen(true);
@@ -212,11 +213,11 @@ function ChatScreen() {
                        accessibilityValue={{ text: profile ? profileLabel(profile) : undefined }}
                        accessibilityState={{ expanded: editingProfile }}
                        onPress={() => setEditingProfile((open) => !open)}
-                       className="min-h-14 min-w-0 flex-1 items-end justify-center rounded-lg bg-zinc-800 px-3 py-2">
-              <Text numberOfLines={1} className="max-w-full text-right font-semibold text-zinc-100">
+                       hitSlop={5} className="h-9 min-w-0 max-w-[48%] items-end justify-center rounded-lg bg-zinc-800 px-2">
+              <Text numberOfLines={1} className="max-w-full text-right text-xs font-semibold leading-4 text-zinc-100">
                 {profile?.name ?? 'Set up profile'}
               </Text>
-              {profile ? <Text className="text-right text-xs text-zinc-300">{profile.level}</Text> : null}
+              {profile ? <Text className="text-right text-xs leading-4 text-zinc-300">{profile.level}</Text> : null}
             </Pressable>
           </View>
           {editingProfile ? (
@@ -274,6 +275,7 @@ function ChatScreen() {
             ))}
           </View> : null}
           {/* Room visibility note or Direct chat controls. */}
+          {room ? <TemperatureBar reading={temperatures[room]} online={online} /> : null}
           {room ? !announcements && <Text className="text-xs text-slate-300">
             Open demo room · Messages are visible to the relay.
           </Text> : <>

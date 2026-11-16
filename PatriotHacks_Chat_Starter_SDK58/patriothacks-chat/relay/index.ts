@@ -1,11 +1,11 @@
 import { profiles, storeProfile } from './profiles.js';
-import { validateReport, saveReport, readReports, incidentSnapshot, severeReports } from './reports.js';
+import { validateReport, saveReport, readReports, incidentSnapshot, severeReports, levelTemperatures } from './reports.js';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { Server } from 'socket.io';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, isRoom, incidentEvent, levelPresenceEvent, severeReportsEvent, parseChatProfile, type LevelPresence, profileEvents, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
+import { events, isEnvelope, isPublicKey, isRoom, incidentEvent, levelPresenceEvent, levelTemperatureEvent, severeReportsEvent, parseChatProfile, type LevelPresence, profileEvents, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 const app = express();
 app.get('/health', (_request, response) => response.json({ ok: true }));
@@ -71,6 +71,7 @@ io.on('connection', (socket) => {
     socket.emit(profileEvents.snapshot, profiles);
     socket.emit(incidentEvent, incidentSnapshot());
     socket.emit(severeReportsEvent, severeReports());
+    socket.emit(levelTemperatureEvent, levelTemperatures());
     publishPresence();
     for (const message of pending.get(key)?.values() ?? []) socket.emit(events.receive, message);
   });
@@ -141,6 +142,7 @@ io.on('connection', (socket) => {
     }
     reply({ ok: true, view: readReports(requested, key) });
     publishIncidents();
+    io.to('room-readers').emit(levelTemperatureEvent, levelTemperatures());
   });
 
   socket.on(roomEvents.history, (requested: unknown, reply: (result: RoomMessage[]) => void) => {
