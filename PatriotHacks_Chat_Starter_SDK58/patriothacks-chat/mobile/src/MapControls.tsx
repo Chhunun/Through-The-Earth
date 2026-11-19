@@ -3,44 +3,29 @@ import { mapDistance, mapRulerStep } from './mapScale';
 
 type Props = {
   width: number;
-  height: number;
   scale: number;
   zoom: (scale: number) => void;
   heading?: number;
 };
 
-export default function MapControls({ width, height, scale, zoom, heading }: Props) {
-  const step = mapRulerStep(scale);
-  const spacing = step * scale;
-  const left = 46;
-  const bottom = 28;
-  // Leave room for the compass and zoom controls at the ends of the rulers.
-  const horizontal = Math.max(0, width - left - 62);
-  const vertical = Math.max(0, height - bottom - 84);
-  const xTicks = Array.from({ length: Math.floor(horizontal / spacing) + 1 }, (_, index) => index);
-  const yTicks = Array.from({ length: Math.floor(vertical / spacing) + 1 }, (_, index) => index);
+export default function MapControls({ width, scale, zoom, heading }: Props) {
+  // Choose a readable distance whose on-screen length fits beside the zoom buttons.
+  const maxLength = Math.max(30, Math.min(125, width - 100));
+  let step = mapRulerStep(scale);
+  while (step * scale > maxLength) step /= 2;
+  const barWidth = step * scale;
 
   return (
     <>
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-        <View style={[styles.horizontal, { left, bottom, width: horizontal }]} />
-        <View style={[styles.vertical, { left, bottom, height: vertical }]} />
-        {xTicks.map((index) => (
-          <View key={'x' + index} style={{ position: 'absolute', left: left + index * spacing, bottom }}>
-            <View style={styles.xTick} />
-            <Text style={[styles.label, { left: -20, top: 7, width: 52, textAlign: 'center' }]}>
-              {mapDistance(index * step)}
-            </Text>
+        <View accessible accessibilityLabel={'Scale bar represents ' + mapDistance(step)}
+          style={styles.scale}>
+          <Text style={styles.scaleLabel}>{mapDistance(step)}</Text>
+          <View style={[styles.scaleLine, { width: barWidth }]}>
+            <View style={[styles.scaleCap, { left: 0 }]} />
+            <View style={[styles.scaleCap, { right: 0 }]} />
           </View>
-        ))}
-        {yTicks.filter((index) => index > 0).map((index) => (
-          <View key={'y' + index} style={{ position: 'absolute', left, bottom: bottom + index * spacing }}>
-            <View style={styles.yTick} />
-            <Text style={[styles.label, { right: 7, top: -7, width: 42, textAlign: 'right' }]}>
-              {mapDistance(index * step)}
-            </Text>
-          </View>
-        ))}
+        </View>
         <View accessible accessibilityLabel={heading === undefined ? 'Compass heading unavailable' : 'Heading ' + Math.round(heading) + ' degrees'}
           style={styles.compass}>
           <Text style={styles.direction}>▲</Text>
@@ -74,11 +59,11 @@ export default function MapControls({ width, height, scale, zoom, heading }: Pro
 }
 
 const styles = StyleSheet.create({
-  horizontal: { position: 'absolute', height: 1, backgroundColor: '#cbd5e1' },
-  vertical: { position: 'absolute', width: 1, backgroundColor: '#cbd5e1' },
-  xTick: { position: 'absolute', top: -5, height: 6, width: 1, backgroundColor: '#cbd5e1' },
-  yTick: { position: 'absolute', left: 0, height: 1, width: 6, backgroundColor: '#cbd5e1' },
-  label: { position: 'absolute', color: '#e2e8f0', fontSize: 9, backgroundColor: '#0f172a' },
+  scale: { position: 'absolute', left: 10, bottom: 10, padding: 7, borderRadius: 4,
+    backgroundColor: '#e2e8f0' },
+  scaleLabel: { color: '#0f172a', fontSize: 10, marginBottom: 3 },
+  scaleLine: { height: 6, borderBottomWidth: 2, borderBottomColor: '#0f172a' },
+  scaleCap: { position: 'absolute', bottom: -2, height: 6, width: 2, backgroundColor: '#0f172a' },
   compass: { position: 'absolute', right: 10, top: 10, width: 62, paddingVertical: 4,
     borderRadius: 30, borderWidth: 1, borderColor: '#475569', backgroundColor: '#0f172a', alignItems: 'center' },
   compassRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
