@@ -4,7 +4,7 @@ A community communication and early-warning app for the people of the Hollow (Pa
 
 ## Features
 
-- **Profiles:** each user picks a display name and a home level (Upper Level, Middle Level or Lower Levels). The relay saves profiles to `relay/profiles.local.json`.
+- **Profiles:** each user picks a display name and a home level (Upper Level, Middle Level or Lower Levels). The relay saves profiles to `relay/profiles.local.json`. **Sign out** returns to the sign-in screen and keeps the device's identity, contacts and messages. The sign-in screen can also **switch to another account** saved on the same phone or browser, or add a new one. Each account has its own key, contacts and messages. **Remove** deletes an account's key and local data from that device after a confirmation (its relay profile stays).
 - **Level channels:** a public chat room per level, showing who belongs to it and how many members are online.
 - **Encrypted direct messages:** one-to-one NaCl-encrypted messages between public keys, with saved contacts.
 - **Check-ins and SOS:** one-tap "I'm okay", "are you okay?" and "SOS — I need help" messages to contacts.

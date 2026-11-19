@@ -28,15 +28,20 @@ document.addEventListener('visibilitychange', refreshClock);
 const bytes = (base64) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 const base64 = (data) => btoa(String.fromCharCode(...data));
 nacl.setPRNG((buffer, length) => buffer.set(crypto.getRandomValues(new Uint8Array(length))));
+// The active account's secret key. Older builds only had this slot, so it stays the source of truth.
+const identitySlot = 'patriothacks.identity.v1';
+// Every account saved in this browser, as base64 secret keys in the order they were added.
+const accountsSlot = 'patriothacks.accounts.v1';
+// Set just before a reload so the chosen account goes straight to its chat.
+const autoSignInSlot = 'patriothacks.auto-sign-in';
 function browserIdentity() {
-  const slot = 'patriothacks.identity.v1';
   try {
-    const stored = localStorage.getItem(slot);
+    const stored = localStorage.getItem(identitySlot);
     if (stored) return nacl.box.keyPair.fromSecretKey(bytes(stored));
   } catch {}
   const pair = nacl.box.keyPair();
   try {
-    localStorage.setItem(slot, base64(pair.secretKey));
+    localStorage.setItem(identitySlot, base64(pair.secretKey));
   } catch {
     field('identity-note').textContent = 'Browser storage is unavailable. Your identity lasts until you reload.';
   }
@@ -44,6 +49,40 @@ function browserIdentity() {
 }
 const keys = browserIdentity();
 const ownKey = base64(keys.publicKey);
+
+function savedSecrets() {
+  try {
+    const list = JSON.parse(localStorage.getItem(accountsSlot) ?? '[]');
+    return Array.isArray(list) ? list.filter((item) => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+const accountSecrets = savedSecrets();
+if (!accountSecrets.includes(base64(keys.secretKey))) {
+  accountSecrets.push(base64(keys.secretKey));
+  try { localStorage.setItem(accountsSlot, JSON.stringify(accountSecrets)); } catch {}
+}
+const otherAccounts = accountSecrets
+  .map((secret) => ({ secret, key: base64(nacl.box.keyPair.fromSecretKey(bytes(secret)).publicKey) }))
+  .filter(({ key }) => key !== ownKey);
+
+// Switching saves the new active key and reloads, so every per-account slot below is rebuilt for it.
+function activateAccount(secret, autoSignIn) {
+  try {
+    localStorage.setItem(identitySlot, secret);
+    if (autoSignIn) sessionStorage.setItem(autoSignInSlot, '1');
+  } catch {
+    field('error').textContent = 'Browser storage is unavailable, so accounts cannot be switched.';
+    return;
+  }
+  location.reload();
+}
+let autoSignIn = false;
+try {
+  autoSignIn = sessionStorage.getItem(autoSignInSlot) === '1';
+  sessionStorage.removeItem(autoSignInSlot);
+} catch {}
 field('public-key').value = ownKey;
 const contactsSlot = 'patriothacks.contacts.v1:' + ownKey;
 
@@ -227,6 +266,7 @@ function updateSignIn() {
   field('sign-in-name').textContent = profile ? profileLabel(profile) : '';
   field('continue-chat').disabled = !profile;
   field('sign-in-wait').hidden = ready || !!profile;
+  if (!signedIn) renderAccounts();
 }
 
 function enterChat(profile) {
@@ -241,6 +281,90 @@ function enterChat(profile) {
 
 field('continue-chat').addEventListener('click', () => {
   if (profiles[ownKey]) enterChat(profiles[ownKey]);
+});
+
+// Cached profiles let the account list show names before the relay answers.
+function cachedProfile(key) {
+  try {
+    return parseChatProfile(JSON.parse(localStorage.getItem('patriothacks.check-ins.profile:' + key) ?? 'null'));
+  } catch {}
+}
+
+function renderAccounts() {
+  const list = field('account-list');
+  list.replaceChildren(...otherAccounts.map(({ secret, key }) => {
+    const row = document.createElement('div');
+    row.className = 'account-row';
+    const button = document.createElement('button');
+    button.type = 'button';
+    const profile = profiles[key] ?? cachedProfile(key);
+    const label = profile ? profileLabel(profile) : key.slice(0, 10) + '…';
+    button.textContent = label;
+    button.addEventListener('click', () => activateAccount(secret, true));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'remove-account';
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', 'Remove ' + label + ' from this browser');
+    remove.addEventListener('click', () => removeAccount(secret, key));
+    row.append(button, remove);
+    return row;
+  }));
+}
+
+// Removing deletes the key and this account's local data from the browser. Its relay profile is left as is.
+function removeAccount(secret, key) {
+  const profile = profiles[key] ?? cachedProfile(key);
+  const name = profile?.name ?? 'this account';
+  if (!window.confirm('Remove ' + name + ' from this browser? This deletes its key, contacts and check-ins here. It cannot be undone.')) return;
+  const remaining = savedSecrets().filter((item) => item !== secret);
+  try {
+    localStorage.setItem(accountsSlot, JSON.stringify(remaining));
+    for (const prefix of ['patriothacks.contacts.v1:', 'patriothacks.check-ins.outbox:', 'patriothacks.check-ins.received:', 'patriothacks.check-ins.profile:']) {
+      localStorage.removeItem(prefix + key);
+    }
+    // With no accounts left, the next load creates a fresh identity.
+    if (key === ownKey) {
+      if (remaining.length) localStorage.setItem(identitySlot, remaining[0]);
+      else localStorage.removeItem(identitySlot);
+    }
+  } catch {
+    field('error').textContent = 'Browser storage is unavailable, so the account could not be removed.';
+    return;
+  }
+  if (key === ownKey) {
+    location.reload();
+    return;
+  }
+  otherAccounts.splice(otherAccounts.findIndex((account) => account.key === key), 1);
+  renderAccounts();
+}
+
+field('remove-account').addEventListener('click', () => removeAccount(base64(keys.secretKey), ownKey));
+
+field('add-account').addEventListener('click', () => {
+  const secret = base64(nacl.box.keyPair().secretKey);
+  try {
+    localStorage.setItem(accountsSlot, JSON.stringify([...savedSecrets(), secret]));
+  } catch {
+    field('error').textContent = 'Browser storage is unavailable, so a new account cannot be saved.';
+    return;
+  }
+  activateAccount(secret, false);
+});
+
+// Signing out only returns to the sign-in screen. The browser keeps its identity,
+// contacts and messages, and the relay connection stays open.
+field('sign-out').addEventListener('click', () => {
+  signedIn = false;
+  selectTab(false);
+  field('draft').value = '';
+  field('error').textContent = '';
+  field('profile-details').open = false;
+  field('chat-sidebar').hidden = true;
+  field('chat-workspace').hidden = true;
+  document.body.classList.add('sign-in');
+  updateSignIn();
 });
 
 function updateProfileSummary() {
@@ -550,6 +674,8 @@ function updateChatActions() {
 field('recipient').addEventListener('input', recipientChanged);
 renderContacts();
 updateSignIn();
+// After switching to a saved account, open its chat right away if its profile is cached.
+if (autoSignIn && profiles[ownKey]) enterChat(profiles[ownKey]);
 
 function status(online, message) {
   authenticated = online;
@@ -723,6 +849,14 @@ nav{display:grid;gap:4px}
 nav button{background:transparent;border:0;color:#a1a1aa;text-align:left}
 nav button:hover,nav button[aria-pressed="true"]{background:#36363d;color:#f4f4f5}
 nav button[aria-pressed="true"]{font-weight:600}
+#sign-out{margin:16px 8px 0;background:#36363d;color:#f4f4f5}
+#other-accounts{background:#303036;border-radius:12px;padding:16px;margin-top:16px}
+#other-accounts h3{margin:0 0 10px;font-size:1rem}
+#account-list{display:grid;gap:8px;margin-bottom:10px}
+.account-row{display:flex;gap:8px}
+.account-row button:first-child{flex:1;min-width:0;background:#3f3f46;color:white;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.remove-account{background:transparent;border:0;color:#fda4af}
+#add-account{background:transparent;border:0;color:#7dd3fc;padding:6px 0;font-weight:600}
 main{max-width:850px;width:100%;padding:24px}
 @media(max-width:600px){body{grid-template-columns:1fr}nav{display:flex;flex-wrap:wrap}main{padding:16px}}
 h1{margin:0}p{color:#b9c9d9}
@@ -768,6 +902,7 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <aside id="chat-sidebar" hidden>
 <h1>Through The Earth</h1>
 <nav id="channels" aria-label="Channels"></nav>
+<button type="button" id="sign-out">Sign out</button>
 </aside>
 <main>
 <section id="sign-in-card">
@@ -775,8 +910,14 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <p id="sign-in-wait">Waiting for your profile from the relay…</p>
 <div id="existing-profile" hidden>
 <p id="sign-in-name"></p>
-<button type="button" id="continue-chat" disabled>Continue to chat</button>
+<button type="button" id="continue-chat" disabled>Sign in</button>
+<button type="button" id="remove-account" class="remove-account">Remove</button>
 </div>
+<section id="other-accounts">
+<h3>Sign in to another account</h3>
+<div id="account-list"></div>
+<button type="button" id="add-account">+ Add another account</button>
+</section>
 </section>
 <div class="status-row">
 <p id="status" role="status">Connecting to relay…</p>

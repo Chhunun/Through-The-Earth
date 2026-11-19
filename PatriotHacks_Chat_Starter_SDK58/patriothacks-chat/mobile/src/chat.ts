@@ -1,12 +1,12 @@
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
-import { decryptMessage, encryptMessage, publicKey } from './crypto';
-import { history, queuedCheckIns, queueCheckIn, removeCheckIn, save } from './storage';
+import { accountKeys, decryptMessage, encryptMessage, publicKey, removeAccount } from './crypto';
+import { forgetOwner, history, queuedCheckIns, queueCheckIn, removeCheckIn, save } from './storage';
 import { connectRelay } from './transport';
 import { checkInMessages, parseChatProfile, type CheckIn, type IncidentSnapshot, type LevelPresence, type LevelTemperatures, type SevereReports, type ChatProfile, type ChatProfiles, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 type Message = Envelope & { text: string };
-export const useChat = create<{
+type ChatState = {
   key: string;
   profiles: ChatProfiles;
   profilesReady: boolean;
@@ -19,7 +19,9 @@ export const useChat = create<{
   messages: Message[];
   pendingCheckIns: Envelope[];
   roomMessages: Partial<Record<Room, RoomMessage[]>>;
-}>(() => ({ key: '', profiles: {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, temperatures: {}, relayError: '', messages: [], pendingCheckIns: [], roomMessages: {} }));
+};
+const initialState: ChatState = { key: '', profiles: {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, temperatures: {}, relayError: '', messages: [], pendingCheckIns: [], roomMessages: {} };
+export const useChat = create<ChatState>(() => initialState);
 
 async function display(envelope: Envelope) {
   const message = { ...envelope, text: await decryptMessage(envelope) };
@@ -42,18 +44,48 @@ function mergeRoom(room: Room, history: RoomMessage[], live?: RoomMessage) {
 
 const cachedProfileSlot = 'patriot-chat.profile-cache';
 
-async function loadCachedProfile(key: string) {
+// Profiles cached per public key, so every account on the device can be labelled offline.
+async function cachedProfiles(): Promise<ChatProfiles> {
+  const result: ChatProfiles = {};
   try {
     const raw = await SecureStore.getItemAsync(cachedProfileSlot);
-    const saved = raw ? JSON.parse(raw) : undefined;
-    if (saved?.key === key) return parseChatProfile(saved.profile);
+    const saved = raw ? JSON.parse(raw) : {};
+    // Older builds stored a single { key, profile } entry.
+    const entries = typeof saved?.key === 'string' ? { [saved.key]: saved.profile } : saved;
+    for (const [key, value] of Object.entries(entries ?? {})) {
+      const profile = parseChatProfile(value);
+      if (profile) result[key] = profile;
+    }
   } catch {
     // An unavailable cache should not affect online sign-in.
   }
+  return result;
 }
 
 function cacheProfile(key: string, profile: ChatProfile) {
-  void SecureStore.setItemAsync(cachedProfileSlot, JSON.stringify({ key, profile })).catch(() => {});
+  void cachedProfiles()
+    .then((all) => SecureStore.setItemAsync(cachedProfileSlot, JSON.stringify({ ...all, [key]: profile })))
+    .catch(() => {});
+}
+
+export type SavedAccount = { key: string; profile?: ChatProfile };
+
+export async function savedAccounts(): Promise<SavedAccount[]> {
+  const [keys, profiles] = await Promise.all([accountKeys(), cachedProfiles()]);
+  return keys.map((key) => ({ key, profile: profiles[key] }));
+}
+
+// Remove an account and its local data from this device. Its relay profile is left as is.
+export async function removeSavedAccount(key: string) {
+  const remaining = await removeAccount(key);
+  await forgetOwner(key, remaining);
+  const { [key]: _removed, ...rest } = await cachedProfiles();
+  await SecureStore.setItemAsync(cachedProfileSlot, JSON.stringify(rest)).catch(() => {});
+}
+
+// Clear the previous account's state before the screen remounts for a different account.
+export function resetChat() {
+  useChat.setState(initialState);
 }
 
 export async function startChat(isActive: () => boolean) {
@@ -66,7 +98,7 @@ export async function startChat(isActive: () => boolean) {
       // An unreadable row should not make the rest of the history inaccessible.
     }
   }
-  const [pendingCheckIns, cachedProfile] = await Promise.all([queuedCheckIns(key), loadCachedProfile(key)]);
+  const [pendingCheckIns, cachedProfile] = await Promise.all([queuedCheckIns(key), cachedProfiles().then((all) => all[key])]);
   if (!isActive()) return;
   useChat.setState({ key, messages, pendingCheckIns, profiles: cachedProfile ? { [key]: cachedProfile } : {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, temperatures: {}, relayError: '' });
   const url = process.env.EXPO_PUBLIC_RELAY_URL;
