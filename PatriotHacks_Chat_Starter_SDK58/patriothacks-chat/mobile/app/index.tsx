@@ -11,21 +11,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 import { isPublicKey, profileLabel, rooms, sosMessage, type ChatProfile, type Room, type RoomMessage, type LevelReport } from '@patriot/protocol';
-import { startChat, useChat } from '../src/chat';
+import { removeSavedAccount, resetChat, savedAccounts, startChat, useChat, type SavedAccount } from '../src/chat';
+import { addAccount, switchAccount } from '../src/crypto';
 
 // The list only needs these fields from either a room message or a direct message.
 type ChatItem = Pick<RoomMessage, 'id' | 'from' | 'text'>;
 
 export default function ChatRoute() {
+  // Bumping the generation remounts ChatScreen, which starts a new relay session for the active account.
+  const [account, setAccount] = useState({ generation: 0, autoSignIn: false });
+  const restart = useCallback((autoSignIn: boolean) => {
+    setAccount(({ generation }) => ({ generation: generation + 1, autoSignIn }));
+  }, []);
   // Keep both sign-in and chat clear of the status bar and home indicator.
   return (
       <SafeAreaView style={{ flex: 1, backgroundColor: '#020617' }} edges={['top', 'right', 'bottom', 'left']}>
-        <ChatScreen />
+        <ChatScreen key={account.generation} autoSignIn={account.autoSignIn} restart={restart} />
       </SafeAreaView>
   );
 }
 
-function ChatScreen() {
+function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (autoSignIn: boolean) => void }) {
   // Shared state comes from the chat store. The useState calls below hold screen-only state.
   const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents, presence, severeReports, temperatures } = useChat();
   // Refs keep the connection and list handles across renders without causing a redraw.
@@ -42,6 +48,8 @@ function ChatScreen() {
   const [error, setError] = useState('');
   const [checkingIn, setCheckingIn] = useState(false);
   const [sending, setSending] = useState(false);
+  const [accounts, setAccounts] = useState<SavedAccount[]>([]);
+  const [switching, setSwitching] = useState(false);
   // Trim a pasted public key, reject our own key, and choose the visible conversation.
   const recipient = peer.trim();
   const validPeer = isPublicKey(recipient) && recipient !== key;
@@ -107,6 +115,58 @@ function ChatScreen() {
 
   const profile = profiles[key];
 
+  // The sign-in screen lists the other accounts saved on this device.
+  useEffect(() => {
+    if (!key || signedIn) return;
+    let active = true;
+    savedAccounts().then((list) => { if (active) setAccounts(list); }).catch(() => {});
+    return () => { active = false; };
+  }, [key, signedIn]);
+
+  // After switching to a saved account, go straight to its chat once its profile is known.
+  const autoEntered = useRef(false);
+  useEffect(() => {
+    if (!autoSignIn || autoEntered.current || !profile) return;
+    autoEntered.current = true;
+    enterChat(profile.level);
+  }, [autoSignIn, profile]);
+
+  // Close this account's relay session, change the active key, then remount for the new account.
+  async function changeAccount(change: () => Promise<void>, enter: boolean) {
+    if (switching) return;
+    setSwitching(true);
+    session.current?.close();
+    session.current = undefined;
+    let changed = true;
+    try {
+      await change();
+    } catch (cause) {
+      changed = false;
+      Alert.alert('Could not switch accounts', cause instanceof Error ? cause.message : String(cause));
+    }
+    resetChat();
+    restart(changed && enter);
+  }
+
+  // Removing deletes the key from this device, so always confirm first.
+  function confirmRemove(account: SavedAccount) {
+    const known = profiles[account.key] ?? account.profile;
+    Alert.alert('Remove ' + (known?.name ?? 'this account') + '?',
+        'This deletes the account’s key, contacts and messages from this device. It can’t be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => {
+        // The active account needs its session closed first, then the screen restarts on the next account.
+        if (account.key === key) {
+          void changeAccount(() => removeSavedAccount(account.key), false);
+          return;
+        }
+        removeSavedAccount(account.key)
+            .then(() => setAccounts((list) => list.filter((item) => item.key !== account.key)))
+            .catch((cause) => Alert.alert('Could not remove account', cause instanceof Error ? cause.message : String(cause)));
+      } },
+    ]);
+  }
+
   async function saveProfile(next: ChatProfile) {
     if (!session.current) throw new Error('Relay is offline');
     await session.current.saveProfile(next);
@@ -117,6 +177,18 @@ function ChatScreen() {
     Keyboard.dismiss();
     setRoom(level);
     setSignedIn(true);
+  }
+
+  // Signing out only returns to the sign-in screen. The device keeps its key, profile,
+  // contacts and messages, and the relay session stays open for the next sign-in.
+  function signOut() {
+    Keyboard.dismiss();
+    setChannelsOpen(false);
+    setEditingProfile(false);
+    setAnnouncements(false);
+    setDraft('');
+    setError('');
+    setSignedIn(false);
   }
 
   // Sign-in is its own layout. Edit the card classes below to change its appearance.
@@ -138,10 +210,17 @@ function ChatScreen() {
               ) : profile ? (
                   <>
                     <Text className="text-zinc-200">{profileLabel(profile)}{online ? '' : ' · Relay offline'}</Text>
-                    <Pressable accessibilityRole="button" className="self-start rounded-lg bg-sky-800 px-4 py-3"
-                               onPress={() => enterChat(profile.level)}>
-                      <Text className="font-semibold text-white">Continue to chat</Text>
-                    </Pressable>
+                    <View className="flex-row items-center gap-3">
+                      <Pressable accessibilityRole="button" className="rounded-lg bg-sky-800 px-4 py-3"
+                                 onPress={() => enterChat(profile.level)}>
+                        <Text className="font-semibold text-white">Sign in</Text>
+                      </Pressable>
+                      <Pressable accessibilityRole="button" accessibilityLabel={'Remove ' + profile.name + ' from this device'}
+                                 disabled={switching} className="px-2 py-3 disabled:opacity-50"
+                                 onPress={() => confirmRemove({ key, profile })}>
+                        <Text className="text-rose-300">Remove</Text>
+                      </Pressable>
+                    </View>
                   </>
               ) : (
                   <ProfileEditor online={online} submitLabel="Sign in" save={async (next) => {
@@ -150,6 +229,34 @@ function ChatScreen() {
                   }} />
               )}
             </View>
+            {/* Other accounts on this device. Each account has its own key, contacts and messages. */}
+            {key ? (
+                <View className="mt-3 gap-2 rounded-2xl bg-zinc-900 p-5">
+                  <Text accessibilityRole="header" className="font-semibold text-white">Sign in to another account</Text>
+                  {accounts.filter((account) => account.key !== key).map((account) => {
+                    const known = profiles[account.key] ?? account.profile;
+                    const label = known ? profileLabel(known) : account.key.slice(0, 10) + '…';
+                    return (
+                        <View key={account.key} className="flex-row items-center gap-2">
+                          <Pressable accessibilityRole="button" disabled={switching}
+                                     className="min-w-0 flex-1 rounded-lg bg-zinc-800 px-4 py-3 disabled:opacity-50"
+                                     onPress={() => { void changeAccount(() => switchAccount(account.key), true); }}>
+                            <Text numberOfLines={1} className="text-white">{label}</Text>
+                          </Pressable>
+                          <Pressable accessibilityRole="button" accessibilityLabel={'Remove ' + label + ' from this device'}
+                                     disabled={switching} className="px-2 py-3 disabled:opacity-50"
+                                     onPress={() => confirmRemove(account)}>
+                            <Text className="text-rose-300">Remove</Text>
+                          </Pressable>
+                        </View>
+                    );
+                  })}
+                  <Pressable accessibilityRole="button" disabled={switching} className="self-start py-2 disabled:opacity-50"
+                             onPress={() => { void changeAccount(addAccount, false); }}>
+                    <Text className="font-semibold text-sky-400">{switching ? 'Switching…' : '+ Add another account'}</Text>
+                  </Pressable>
+                </View>
+            ) : null}
           </ScrollView>
         </KeyboardAvoidingView>
     );
@@ -209,16 +316,23 @@ function ChatScreen() {
                        }}>
               <Text className="font-semibold text-zinc-100">☰ Channels</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Edit chat profile"
-                       accessibilityValue={{ text: profile ? profileLabel(profile) : undefined }}
-                       accessibilityState={{ expanded: editingProfile }}
-                       onPress={() => setEditingProfile((open) => !open)}
-                       hitSlop={5} className="h-9 min-w-0 max-w-[48%] items-end justify-center rounded-lg bg-zinc-800 px-2">
-              <Text numberOfLines={1} className="max-w-full text-right text-xs font-semibold leading-4 text-zinc-100">
-                {profile?.name ?? 'Set up profile'}
-              </Text>
-              {profile ? <Text className="text-right text-xs leading-4 text-zinc-300">{profile.level}</Text> : null}
-            </Pressable>
+            {/* Sign out and profile share the right side. The profile name truncates first on narrow screens. */}
+            <View className="min-w-0 flex-1 flex-row items-center justify-end gap-2">
+              <Pressable accessibilityRole="button" onPress={signOut}
+                         hitSlop={5} className="h-9 justify-center rounded-lg bg-zinc-800 px-2">
+                <Text className="text-xs font-semibold text-zinc-100">Sign out</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Edit chat profile"
+                         accessibilityValue={{ text: profile ? profileLabel(profile) : undefined }}
+                         accessibilityState={{ expanded: editingProfile }}
+                         onPress={() => setEditingProfile((open) => !open)}
+                         hitSlop={5} className="h-9 min-w-0 shrink items-end justify-center rounded-lg bg-zinc-800 px-2">
+                <Text numberOfLines={1} className="max-w-full text-right text-xs font-semibold leading-4 text-zinc-100">
+                  {profile?.name ?? 'Set up profile'}
+                </Text>
+                {profile ? <Text numberOfLines={1} className="text-right text-xs leading-4 text-zinc-300">{profile.level}</Text> : null}
+              </Pressable>
+            </View>
           </View>
           {editingProfile ? (
               <ProfileEditor profile={profile} online={online} save={saveProfile}

@@ -68,3 +68,17 @@ export async function removeCheckIn(envelope: Envelope) {
   const db = await getDatabase();
   await db.runAsync('DELETE FROM check_in_outbox WHERE owner = ? AND id = ?', envelope.from, envelope.id);
 }
+
+// Delete one account's local data. Messages exchanged with another account that stays on
+// this device are kept, because that account still needs its copy.
+export async function forgetOwner(owner: string, keep: string[]) {
+  const db = await getDatabase();
+  const others = keep.map(() => '?').join(', ');
+  const notKept = (column: string) => keep.length ? ' AND ' + column + ' NOT IN (' + others + ')' : '';
+  await db.runAsync(
+    'DELETE FROM messages WHERE (sender = ?' + notKept('recipient') + ') OR (recipient = ?' + notKept('sender') + ')',
+    owner, ...keep, owner, ...keep,
+  );
+  await db.runAsync('DELETE FROM contacts WHERE owner = ?', owner);
+  await db.runAsync('DELETE FROM check_in_outbox WHERE owner = ?', owner);
+}
