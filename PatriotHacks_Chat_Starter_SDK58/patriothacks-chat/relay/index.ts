@@ -1,3 +1,4 @@
+import { readMap, storeMapPath } from './mapStore.js';
 import { profiles, storeProfile } from './profiles.js';
 import { validateReport, saveReport, readReports, incidentSnapshot, severeReports, levelTemperatures } from './reports.js';
 import { createServer } from 'node:http';
@@ -11,7 +12,6 @@ const app = express();
 app.get('/health', (_request, response) => response.json({ ok: true }));
 const server = createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 64 * 1024 });
-const paths = new Map<string, WalkPath>();
 const pending = new Map<string, Map<string, Envelope>>();
 const roomHistory = new Map<Room, RoomMessage[]>();
 const relayKeys = nacl.box.keyPair();
@@ -78,7 +78,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on(mapEvents.read, (reply: (paths: WalkPath[]) => void) => {
-    if (authenticated && typeof reply === 'function') reply([...paths.values()]);
+    if (authenticated && typeof reply === 'function') {
+      try { reply(readMap()); }
+      catch (error) { console.error('Could not read shared map', error); }
+    }
   });
 
   socket.on(mapEvents.contribute, (path: unknown, reply: (ack: Ack) => void) => {
@@ -87,18 +90,14 @@ io.on('connection', (socket) => {
       reply({ ok: false, error: 'Invalid path or session' });
       return;
     }
-    const previous = paths.get(path.id);
-    if (previous && JSON.stringify(previous) !== JSON.stringify(path)) {
-      reply({ ok: false, error: 'Path ID already used' });
-      return;
+    try {
+      const result = storeMapPath(path);
+      if (result.ok) io.to('room-readers').emit(mapEvents.path, path);
+      reply(result);
+    } catch (error) {
+      console.error('Could not store shared path', error);
+      reply({ ok: false, error: 'Could not save path. It will remain queued on your device.' });
     }
-    if (!previous && paths.size >= 1000) {
-      reply({ ok: false, error: 'The shared map has reached its path limit.' });
-      return;
-    }
-    paths.set(path.id, path);
-    io.to('room-readers').emit(mapEvents.path, path);
-    reply({ ok: true });
   });
 
   socket.on(events.send, (message: unknown, reply: (ack: Ack) => void) => {

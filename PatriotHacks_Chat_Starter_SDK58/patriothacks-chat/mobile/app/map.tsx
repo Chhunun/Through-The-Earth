@@ -1,3 +1,5 @@
+import { useChat } from '../src/chat';
+import { publicKey } from '../src/crypto';
 import MapPathLayer from '../src/MapPathLayer';
 import { mergeWalkPaths } from '../src/mergeWalkPaths';
 import MapJoystick from '../src/MapJoystick';
@@ -11,9 +13,11 @@ import * as Location from 'expo-location';
 import * as Crypto from 'expo-crypto';
 import { rooms, type MapPoint, type Room, type WalkPath } from '@patriot/protocol';
 import { mapConnection } from '../src/mapConnection';
-import { loadMap, saveMapPath } from '../src/mapStorage';
+import { loadMap, saveMapPath, queueMapShare } from '../src/mapStorage';
 
 export default function MapScreen() {
+  const canTest = useChat((state) => state.profiles[state.key]?.name === 'test');
+  const [pendingShares, setPendingShares] = useState(0);
   const [usingJoystick, setUsingJoystick] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testPaths, setTestPaths] = useState<WalkPath[]>([]);
@@ -57,6 +61,16 @@ export default function MapScreen() {
   }
 
   useEffect(() => {
+    if (!canTest && testing) {
+      stop();
+      walk.current = undefined;
+      setDraft(undefined);
+      setTestPaths([]);
+      setTesting(false);
+    }
+  }, [canTest, testing]);
+
+  useEffect(() => {
     active.current = true;
     function merge(incoming: WalkPath[]) {
       if (!active.current) return;
@@ -72,7 +86,7 @@ export default function MapScreen() {
       if (!active.current) return;
       setOnline(connected);
       if (error) setMessage(error);
-    }).then((relay) => {
+    }, (count) => { if (active.current) setPendingShares(count); }).then((relay) => {
       if (active.current) connection.current = relay;
       else relay.close();
     }).catch((error) => { if (active.current) setMessage(String(error)); });
@@ -101,6 +115,7 @@ export default function MapScreen() {
       return;
     }
     if (testing) {
+      if (!canTest) return;
       const next: WalkPath = { id: Crypto.randomUUID(), level, points: [{ ...testPoint.current }] };
       walk.current = next;
       setDraft(next);
@@ -201,22 +216,27 @@ export default function MapScreen() {
       return;
     }
     setBusy(true);
+    let queued = false;
     try {
       await saveMapPath(path);
       setPaths((current) => [...new Map([...current, path].map((item) => [item.id, item])).values()]);
       if (share) {
-        if (!connection.current) throw new Error('Relay unavailable. The path was saved on this device.');
-        await connection.current.contribute(path);
+        if (connection.current) queued = await connection.current.contribute(path);
+        else {
+          await queueMapShare(await publicKey(), path);
+          queued = true;
+          setPendingShares((count) => count + 1);
+        }
       }
       walk.current = undefined;
       setDraft(undefined);
-      setMessage(share ? 'Path shared. Your live marker remains private.' : 'Path saved on this device.');
+      setMessage(queued ? 'Path saved and queued. Open this map when connected to finish sharing.' : share ? 'Path shared. Your live marker remains private.' : 'Path saved on this device.');
     } catch (error) { setMessage(String(error)); }
     finally { if (active.current) setBusy(false); }
   }
 
   function moveTest(east: number, north: number) {
-    if (!testing || !recording || !walk.current) return;
+    if (!canTest || !testing || !recording || !walk.current) return;
     const last = testPoint.current;
     const next = { latitude: last.latitude + north / 111320,
       longitude: last.longitude + east / (111320 * Math.cos(last.latitude * Math.PI / 180)) };
@@ -234,7 +254,7 @@ export default function MapScreen() {
   }
 
   function toggleTesting() {
-    if (recording || busy || draft) return;
+    if (!canTest || recording || busy || draft) return;
     stop();
     testPoint.current = { latitude: 0, longitude: 0 };
     setTesting((value) => !value);
@@ -279,10 +299,11 @@ export default function MapScreen() {
       <Text className="text-xs text-slate-400">Map north stays up · Compass turns with your heading · Distances in feet and inches.</Text>
       <Text className="text-xs text-slate-300">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable · Start a walk to enable phone compass'}</Text>
       <Text className="text-xs text-slate-300">{position ? testing ? 'Simulated location' : 'Your estimated location · ±' + mapDistance(accuracy ?? 0) + ' · Private' : 'Location unavailable or tracking stopped'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
-      <Pressable accessibilityRole="switch" accessibilityState={{ checked: testing, disabled: recording || busy || !!draft }}
+      {pendingShares > 0 ? <Text className="text-xs text-amber-200">{pendingShares} shared path(s) waiting to sync. Retries run while this map is open.</Text> : null}
+      {canTest ? <Pressable accessibilityRole="switch" accessibilityState={{ checked: testing, disabled: recording || busy || !!draft }}
         disabled={recording || busy || !!draft} onPress={toggleTesting} className="self-start rounded bg-zinc-800 p-3">
         <Text className="text-white">{testing ? 'Test joystick: on' : 'Test joystick: off'}</Text>
-      </Pressable>
+      </Pressable> : null}
       {testing ? <Text className="text-xs text-amber-200">Simulation · Test paths stay in this session. Choose Record walk, then drag the joystick.</Text> : null}
       <View className="flex-row flex-wrap gap-2">
         <Pressable disabled={busy} className="rounded bg-sky-800 p-3" onPress={() => { if (recording) stop(); else void start(); }}><Text className="text-white">{recording ? 'Stop recording' : 'Record walk'}</Text></Pressable>
@@ -295,6 +316,6 @@ export default function MapScreen() {
       {message ? <Text className="text-sm text-slate-200">{message}</Text> : null}
       <Text className="text-xs text-slate-400">Recording stops when this map leaves the foreground. A shared route contains coordinates, but no name or live location marker.</Text>
     </ScrollView>
-    {testing && recording ? <MapJoystick move={moveTest} interaction={setUsingJoystick} /> : null}
+    {canTest && testing && recording ? <MapJoystick move={moveTest} interaction={setUsingJoystick} /> : null}
   </SafeAreaView>;
 }
