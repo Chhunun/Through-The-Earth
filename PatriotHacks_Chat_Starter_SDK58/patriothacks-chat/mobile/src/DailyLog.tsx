@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import term from './terminal-colors.json';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { dailyLogDay, dailyLogDayLabel, dailyLogNotesLimit, dailyLogQuestions, type DailyLogAnswers, type DailyLogEntry } from '@patriot/protocol';
 import { dailyLog, saveDailyLog } from './storage';
@@ -56,27 +57,27 @@ export default function DailyLog({ ownKey }: { ownKey: string }) {
   return (
     <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 16 }}
       keyboardShouldPersistTaps="handled">
-      <Text className="text-xl font-semibold text-white">Daily log · {dailyLogDayLabel(today)}</Text>
-      <Text className="text-zinc-300">
+      <Text className="font-mono text-xl font-semibold text-term-text">Daily log · {dailyLogDayLabel(today)}</Text>
+      <Text className="font-mono text-term-dim">
         Only you can see this. It is saved on this device and is never sent to the relay. Tap a selected answer again to clear it.
       </Text>
       {dailyLogQuestions.map(({ id, label, choices }) => (
         <View key={id} className="gap-2">
-          <Text className="font-semibold text-white">{label}</Text>
+          <Text className="font-mono font-semibold text-term-text">{label}</Text>
           <View className="flex-row flex-wrap gap-2">
             {choices.map((choice) => {
               const selected = answers[id] === choice;
               return (
                 <Pressable key={choice} accessibilityRole="button" accessibilityState={{ selected }}
                   disabled={busy || !loaded}
-                  className={selected ? 'rounded-md bg-sky-800 px-3 py-2' : 'rounded-md bg-zinc-800 px-3 py-2'}
+                  className={selected ? 'rounded-sm bg-term-active border border-term-text px-3 py-2' : 'rounded-sm bg-term-field border border-term-line px-3 py-2'}
                   onPress={() => setAnswers((current) => {
                     const next = { ...current };
                     if (next[id] === choice) delete next[id];
                     else next[id] = choice;
                     return next;
                   })}>
-                  <Text className="text-white">{choice}</Text>
+                  <Text className="font-mono text-term-text">{choice}</Text>
                 </Pressable>
               );
             })}
@@ -84,22 +85,22 @@ export default function DailyLog({ ownKey }: { ownKey: string }) {
         </View>
       ))}
       <TextInput accessibilityLabel="Notes" placeholder="Notes: what you ate, symptoms, anything else (optional)"
-        placeholderTextColor="#a1a1aa" multiline maxLength={dailyLogNotesLimit} editable={!busy && loaded}
-        className="min-h-20 rounded-lg bg-zinc-800 p-3 text-white" value={notes} onChangeText={setNotes} />
+        placeholderTextColor={term.muted} multiline maxLength={dailyLogNotesLimit} editable={!busy && loaded}
+        className="font-mono min-h-20 rounded-sm bg-term-field border border-term-line p-3 text-term-text" value={notes} onChangeText={setNotes} />
       <Pressable accessibilityRole="button" disabled={busy || !loaded} onPress={save}
-        className="self-start rounded-lg bg-sky-800 p-3 disabled:opacity-50">
-        <Text className="font-semibold text-white">{busy ? 'Saving…' : 'Save today'}</Text>
+        className="self-start rounded-sm bg-term-active border border-term-text p-3 disabled:opacity-50">
+        <Text className="font-mono font-semibold text-term-text">{busy ? 'Saving…' : 'Save today'}</Text>
       </Pressable>
-      {status ? <Text accessibilityLiveRegion="polite" className="text-zinc-200">{status}</Text> : null}
-      <Text className="text-lg font-semibold text-white">Past days</Text>
-      {loaded && !pastDays.length ? <Text className="text-zinc-400">No earlier entries yet.</Text> : null}
+      {status ? <Text accessibilityLiveRegion="polite" className="font-mono text-term-text">{status}</Text> : null}
+      <Text className="font-mono text-lg font-semibold text-term-text">Past days</Text>
+      {loaded && !pastDays.length ? <Text className="font-mono text-term-muted">No earlier entries yet.</Text> : null}
       {pastDays.map((entry) => (
-        <View key={entry.day} className="gap-1 rounded-lg bg-zinc-800 p-3">
-          <Text className="font-semibold text-white">{dailyLogDayLabel(entry.day)}</Text>
+        <View key={entry.day} className="gap-1 rounded-sm bg-term-field border border-term-line p-3">
+          <Text className="font-mono font-semibold text-term-text">{dailyLogDayLabel(entry.day)}</Text>
           {dailyLogQuestions.map(({ id, label }) => entry.answers[id]
-            ? <Text key={id} className="text-zinc-100">{label} · {entry.answers[id]}</Text>
+            ? <Text key={id} className="font-mono text-term-text">{label} · {entry.answers[id]}</Text>
             : null)}
-          {entry.notes ? <Text className="text-zinc-300">{entry.notes}</Text> : null}
+          {entry.notes ? <Text className="font-mono text-term-dim">{entry.notes}</Text> : null}
         </View>
       ))}
     </ScrollView>

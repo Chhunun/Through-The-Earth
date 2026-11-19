@@ -1,0 +1,11 @@
+{
+  "bg": "#03190b",
+  "panel": "#05240f",
+  "field": "#093317",
+  "active": "#0f5226",
+  "line": "#26a148",
+  "muted": "#3db35e",
+  "dim": "#4fd172",
+  "text": "#6bff8f",
+  "glow": "#c4ffd2"
+}

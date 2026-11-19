@@ -23,8 +23,8 @@ export default function LocalClock() {
   return (
     <View accessible accessibilityLabel={'Local time ' + clock.time + ', ' + clock.date}
       className="shrink-0 items-end">
-      <Text className="text-sm font-semibold text-white">{clock.time}</Text>
-      <Text className="text-xs text-zinc-300">{clock.date}</Text>
+      <Text className="font-mono text-sm font-semibold text-term-text">{clock.time}</Text>
+      <Text className="font-mono text-xs text-term-dim">{clock.date}</Text>
     </View>
   );
 }

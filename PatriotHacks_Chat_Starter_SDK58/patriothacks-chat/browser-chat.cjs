@@ -918,71 +918,92 @@ const page = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Through The Earth</title>
 <style>
+/* Green terminal theme. Same palette as mobile/src/terminal-colors.json. */
+:root{--bg:#03190b;--panel:#05240f;--field:#093317;--active:#0f5226;--line:#26a148;--muted:#3db35e;--dim:#4fd172;--text:#6bff8f;--glow:#c4ffd2;
+--alert:#ff8a8a;--alert-bg:#3b0a12;--alert-line:#fb7185;--warn:#fef3c7;--warn-bg:#2e1f06;--warn-line:#d4a017}
 *{box-sizing:border-box}
-body{background:#101822;color:#edf3fa;font:16px system-ui;margin:0}
-body{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh;background:#222226}
+html{background:var(--bg)}
+body{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh;margin:0;background:radial-gradient(ellipse at center,#062a12 0%,var(--bg) 75%);color:var(--text);
+font:15px/1.45 Consolas,"Lucida Console","Courier New",monospace;text-shadow:0 0 4px rgba(107,255,143,.35);caret-color:var(--text)}
+/* Faint scanlines over the whole screen. pointer-events:none keeps everything clickable. */
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:10;background:repeating-linear-gradient(to bottom,transparent 0 2px,rgba(0,0,0,.22) 2px 3px)}
+::selection{background:var(--text);color:var(--bg);text-shadow:none}
+:focus-visible{outline:2px solid var(--glow);outline-offset:2px}
 body.sign-in{grid-template-columns:minmax(0,1fr);place-items:center}
-body.sign-in main{max-width:500px}
-body.sign-in #profile-details{background:#303036;border-radius:12px;padding:16px}
+body.sign-in main{max-width:520px}
+body.sign-in #profile-details{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:16px}
+h1,h2,h3,h4,summary{color:var(--glow);text-transform:uppercase;letter-spacing:.12em;font-weight:700}
+h2{font-size:1.15rem}h3{font-size:1rem}h4{font-size:.9rem}
+h1{margin:0}p{color:var(--dim)}
 #profile-details summary{cursor:pointer}
 #profile-title[hidden]{display:none}
-aside{background:#18181b;padding:20px 10px}
-aside h1{font-size:1rem;padding:0 8px 12px}
+aside{background:var(--panel);border-right:1px solid var(--line);padding:20px 10px}
+aside h1{font-size:.95rem;padding:0 8px 12px;border-bottom:1px solid var(--line);margin-bottom:12px}
+aside h1::after{content:"_";animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+@media(prefers-reduced-motion:reduce){aside h1::after{animation:none}}
 nav{display:grid;gap:4px}
-nav button{background:transparent;border:0;color:#a1a1aa;text-align:left}
-nav button:hover,nav button[aria-pressed="true"]{background:#36363d;color:#f4f4f5}
-nav button[aria-pressed="true"]{font-weight:600}
-#sign-out{margin:16px 8px 0;background:#36363d;color:#f4f4f5}
-#other-accounts{background:#303036;border-radius:12px;padding:16px;margin-top:16px}
-#other-accounts h3{margin:0 0 10px;font-size:1rem}
+nav button{background:transparent;border:1px solid transparent;color:var(--muted);text-align:left}
+nav button:hover{border-color:var(--line);color:var(--text);background:var(--field)}
+nav button[aria-pressed="true"]{background:var(--text);color:var(--bg);border-color:var(--text);font-weight:700;text-shadow:none}
+nav button[aria-pressed="true"]::before{content:"> "}
+#sign-out{margin:16px 8px 0}
+#other-accounts{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:16px;margin-top:16px}
+#other-accounts h3{margin:0 0 10px}
 #account-list{display:grid;gap:8px;margin-bottom:10px}
 .account-row{display:flex;gap:8px}
-.account-row button:first-child{flex:1;min-width:0;background:#3f3f46;color:white;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.remove-account{background:transparent;border:0;color:#fda4af}
-#add-account{background:transparent;border:0;color:#7dd3fc;padding:6px 0;font-weight:600}
+.account-row button:first-child{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.remove-account,.remove-account:hover{background:transparent;border-color:transparent;color:var(--alert)}
+#add-account,#add-account:hover{background:transparent;border-color:transparent;color:var(--glow);padding:6px 0;font-weight:700}
 main{max-width:850px;width:100%;padding:24px}
-@media(max-width:600px){body{grid-template-columns:1fr}nav{display:flex;flex-wrap:wrap}main{padding:16px}}
-h1{margin:0}p{color:#b9c9d9}
-label{display:block;margin:16px 0 6px}
-input,textarea,button,select{font:inherit;padding:10px;border:1px solid #52667b;border-radius:6px}
-input,textarea,select{background:#1f2d3c;color:inherit;width:100%}
-button{background:#a6e6ce;color:#102624;cursor:pointer}
-button:disabled{opacity:.5;cursor:default}
+@media(max-width:600px){body{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}nav{display:flex;flex-wrap:wrap}main{padding:16px}}
+label{display:block;margin:16px 0 6px;color:var(--dim)}
+input,textarea,button,select{font:inherit;padding:10px;border:1px solid var(--line);border-radius:2px}
+input,textarea,select{background:var(--field);color:var(--text);width:100%}
+input::placeholder,textarea::placeholder{color:var(--muted)}
+option{background:var(--field);color:var(--text)}
+button{background:var(--active);color:var(--text);border-color:var(--text);cursor:pointer;text-shadow:inherit}
+button:hover:not(:disabled){background:var(--text);color:var(--bg);text-shadow:none}
+button:disabled{opacity:.45;cursor:default}
 .key{display:flex;gap:8px}
 #saved-contacts,#recent-contacts{display:flex;flex-wrap:wrap;gap:8px}
-#saved-contacts button,#recent-contacts button{background:#36363d;color:white}
-#saved-contacts button[aria-pressed="true"],#recent-contacts button[aria-pressed="true"]{background:#a6e6ce;color:#102624}
+#saved-contacts button,#recent-contacts button{background:var(--field);border-color:var(--line)}
+#saved-contacts button[aria-pressed="true"],#recent-contacts button[aria-pressed="true"]{background:var(--text);color:var(--bg);text-shadow:none}
 #toggle-contact{margin-top:8px}
-#check-in{background:#303036;border-radius:8px;padding:12px;margin-top:12px}
+#check-in{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:12px;margin-top:12px}
 #check-in button{margin:4px 4px 0 0}
-#check-in-help{background:#881337;color:#fff1f2}
-#check-in-pending{color:#fbbf24}
-ul{min-height:120px;max-height:40vh;overflow:auto;padding:12px 12px 12px 32px;background:#172230;border-radius:6px}
+#check-in-pending{color:#ffd54f}
+ul{min-height:120px;max-height:40vh;overflow:auto;padding:12px 12px 12px 32px;background:var(--panel);border:1px solid var(--line);border-radius:2px}
 li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
-#error{color:#ffbaad}
+li::marker{color:var(--muted)}
+#error{color:var(--alert)}
 .status-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
-#local-clock{color:#edf3fa;font-size:.875rem;font-variant-numeric:tabular-nums}
-#incident-banner{background:#432b13;color:#fef3c7;border:1px solid #a16207;border-radius:8px;padding:10px 12px;margin:12px 0}
+#status{text-transform:uppercase;letter-spacing:.08em}
+#local-clock{color:var(--glow);font-size:.875rem;font-variant-numeric:tabular-nums}
+/* Alerts keep red and amber so they can't be mistaken for ordinary green text. */
+#incident-banner{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-line);border-radius:2px;padding:10px 12px;margin:12px 0;text-shadow:none}
+#incident-banner strong{text-transform:uppercase;letter-spacing:.08em}
 #incident-items,#incident-offline{font-size:.9rem;margin-top:4px}
-#sos,.sos-message{background:#881337;color:#fff1f2}
-.sos-message{font-weight:700;border:1px solid #fb7185;border-radius:8px;padding:8px}
-#level-tabs button{background:#36363d;color:white;margin-right:6px}
-#level-tabs button[aria-pressed="true"]{background:#a6e6ce;color:#102624}
+#sos,#check-in-help,.sos-message{background:var(--alert-bg);color:#ffd6dc;border-color:var(--alert-line);text-shadow:0 0 4px rgba(251,113,133,.45)}
+#sos:hover:not(:disabled),#check-in-help:hover:not(:disabled){background:var(--alert-line);color:var(--bg);text-shadow:none}
+.sos-message{font-weight:700;border:1px solid var(--alert-line);border-radius:2px;padding:8px}
+#level-tabs button{background:var(--field);border-color:var(--line);margin-right:6px}
+#level-tabs button[aria-pressed="true"]{background:var(--text);color:var(--bg);border-color:var(--text);text-shadow:none}
 #poll-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
-#poll-charts article{background:#303036;border-radius:8px;padding:12px}
+#poll-charts article,#report-feed article,#log-history article{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:12px}
 .pie-details{display:flex;align-items:center;gap:12px;margin-top:8px;font-size:.9rem}
-.poll-pie{width:96px;height:96px;border-radius:50%;flex:none}
+.poll-pie{width:96px;height:96px;border-radius:50%;flex:none;border:1px solid var(--line)}
 .pie-swatch{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 #report-feed{display:grid;gap:8px;margin:12px 0}
-#report-feed article{display:grid;gap:5px;background:#303036;padding:12px;border-radius:8px}
-#report-feed code{overflow-wrap:anywhere;color:#d4d4d8}
-#report-feed time{font-size:.85rem;color:#a1a1aa}
+#report-feed article{display:grid;gap:5px}
+#report-feed code{overflow-wrap:anywhere;color:var(--dim)}
+#report-feed time{font-size:.85rem;color:var(--muted)}
 #report-fields{border:0;margin:0;padding:0}
 #report-questions,#log-questions{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
 #report-questions select,#log-questions select{display:block;margin-top:5px}
 #log-history{display:grid;gap:8px;margin:12px 0}
-#log-history article{display:grid;gap:4px;background:#303036;padding:12px;border-radius:8px}
-.log-notes{color:#d4d4d8;white-space:pre-wrap;overflow-wrap:anywhere}
+#log-history article{display:grid;gap:4px}
+.log-notes{color:var(--dim);white-space:pre-wrap;overflow-wrap:anywhere}
 </style>
 <body class="sign-in">
 <aside id="chat-sidebar" hidden>

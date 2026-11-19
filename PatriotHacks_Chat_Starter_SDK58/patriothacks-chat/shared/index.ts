@@ -104,7 +104,8 @@ export function parseLevelReport(answers: ReportAnswers, temperature: string): L
   return report;
 }
 
-const responseColors = ['#60a5fa', '#fbbf24', '#f87171', '#a78bfa'];
+// Chart colors follow choice order (least to most severe): terminal green through amber to red.
+const responseColors = ['#6bff8f', '#d4e157', '#ffa040', '#ff5f5f'];
 
 export function reportPie(counts: readonly number[]) {
   const total = counts.reduce((sum, count) => sum + count, 0);

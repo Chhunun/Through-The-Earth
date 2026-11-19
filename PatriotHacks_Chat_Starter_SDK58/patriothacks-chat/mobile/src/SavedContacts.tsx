@@ -53,15 +53,15 @@ export default function SavedContacts({ owner, recipient, profiles, select }: Pr
     <View className="gap-2">
       {contacts.length ? (
         <>
-          <Text className="text-sm font-semibold text-zinc-200">Saved contacts</Text>
+          <Text className="font-mono text-sm font-semibold text-term-text">Saved contacts</Text>
           <ScrollView horizontal keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8 }}>
             {contacts.map((key) => {
               const label = profiles[key] ? profileLabel(profiles[key]) : key.slice(0, 10) + '…';
               return (
                 <Pressable key={key} accessibilityRole="button" accessibilityState={{ selected: key === recipient }}
                   onPress={() => select(key)}
-                  className={key === recipient ? 'rounded-lg bg-sky-800 px-3 py-2' : 'rounded-lg bg-zinc-800 px-3 py-2'}>
-                  <Text className="text-white">{label}</Text>
+                  className={key === recipient ? 'rounded-sm bg-term-active border border-term-text px-3 py-2' : 'rounded-sm bg-term-field border border-term-line px-3 py-2'}>
+                  <Text className="font-mono text-term-text">{label}</Text>
                 </Pressable>
               );
             })}
@@ -70,11 +70,11 @@ export default function SavedContacts({ owner, recipient, profiles, select }: Pr
       ) : null}
       {isPublicKey(recipient) && recipient !== owner ? (
         <Pressable accessibilityRole="button" disabled={!canSave} onPress={toggleContact}
-          className="self-start rounded-lg bg-zinc-800 px-3 py-2 disabled:opacity-50">
-          <Text className="text-white">{saved ? 'Remove contact' : 'Save contact'}</Text>
+          className="self-start rounded-sm bg-term-field border border-term-line px-3 py-2 disabled:opacity-50">
+          <Text className="font-mono text-term-text">{saved ? 'Remove contact' : 'Save contact'}</Text>
         </Pressable>
       ) : null}
-      {status ? <Text accessibilityLiveRegion="polite" className="text-xs text-zinc-300">{status}</Text> : null}
+      {status ? <Text accessibilityLiveRegion="polite" className="font-mono text-xs text-term-dim">{status}</Text> : null}
     </View>
   );
 }
