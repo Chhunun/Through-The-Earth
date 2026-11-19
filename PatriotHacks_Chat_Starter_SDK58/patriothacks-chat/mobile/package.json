@@ -8,10 +8,11 @@
   },
   "dependencies": {
     "@patriot/protocol": "1.0.0",
-    "expo": "~58.0.25",
+    "expo": "^58.0.26",
     "expo-constants": "~58.0.16",
     "expo-crypto": "~58.0.8",
     "expo-linking": "~58.0.17",
+    "expo-location": "~58.0.22",
     "expo-router": "~58.0.31",
     "expo-secure-store": "~58.0.3",
     "expo-sqlite": "~58.0.17",
