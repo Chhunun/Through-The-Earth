@@ -1,7 +1,8 @@
+import { mergeWalkPaths } from '../src/mergeWalkPaths';
 import MapJoystick from '../src/MapJoystick';
 import { mapDistance } from '../src/mapScale';
 import MapControls from '../src/MapControls';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -12,6 +13,7 @@ import { mapConnection } from '../src/mapConnection';
 import { loadMap, saveMapPath } from '../src/mapStorage';
 
 export default function MapScreen() {
+  const [usingJoystick, setUsingJoystick] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testPaths, setTestPaths] = useState<WalkPath[]>([]);
   const [heading, setHeading] = useState<number>();
@@ -46,6 +48,7 @@ export default function MapScreen() {
     setHeading(undefined);
     setHeadingSource('');
     setRecording(false);
+    setUsingJoystick(false);
     setPosition(undefined);
     setBusy(false);
   }
@@ -233,6 +236,15 @@ export default function MapScreen() {
 
   const visible = (testing ? testPaths : paths).filter((path) => path.level === level);
   const tracks = [...visible, ...(draft?.level === level ? [draft] : [])];
+  const merged = useMemo(() => mergeWalkPaths(
+    (testing ? testPaths : paths).filter((path) => path.level === level),
+  ), [testing, testPaths, paths, level]);
+  const drawing = [
+    ...merged,
+    ...(draft?.level === level ? draft.points.slice(1).map((point, index) => ({
+      id: draft.id + ':' + index, from: draft.points[index], to: point, recordings: 1,
+    })) : []),
+  ];
   const center = position ?? tracks[0]?.points[0];
   function project(point: MapPoint) {
     if (!center) return { x: size.width / 2, y: size.height / 2 };
@@ -241,17 +253,20 @@ export default function MapScreen() {
       y: size.height / 2 - (point.latitude - center.latitude) * 111320 * scale,
     };
   }
-  const segments = tracks.flatMap((path) => path.points.slice(1).map((point, index) => {
-    const a = project(path.points[index]);
-    const b = project(point);
-    return <View key={path.id + ':' + index} style={{ position: 'absolute', left: (a.x + b.x) / 2,
-      top: (a.y + b.y) / 2, width: Math.hypot(b.x - a.x, b.y - a.y), height: 3,
-      backgroundColor: '#38bdf8', transform: [{ translateX: -Math.hypot(b.x - a.x, b.y - a.y) / 2 },
-        { rotate: Math.atan2(b.y - a.y, b.x - a.x) + 'rad' }] }} />;
-  }));
+  const segments = drawing.map((segment) => {
+    const a = project(segment.from);
+    const b = project(segment.to);
+    const width = Math.hypot(b.x - a.x, b.y - a.y);
+    return <View key={segment.id} pointerEvents="none" style={{
+      position: 'absolute', left: (a.x + b.x) / 2 - width / 2,
+      top: (a.y + b.y) / 2 - 1.5, width, height: 3,
+      backgroundColor: segment.recordings > 1 ? '#7dd3fc' : '#38bdf8',
+      transform: [{ rotate: Math.atan2(b.y - a.y, b.x - a.x) + 'rad' }],
+    }} />;
+  });
 
   return <SafeAreaView style={{ flex: 1, backgroundColor: '#020617' }}>
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+    <ScrollView scrollEnabled={!usingJoystick} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && recording ? 170 : 16 }}>
       <Pressable onPress={() => router.back()} accessibilityRole="button"><Text className="font-semibold text-sky-300">‹ Social network</Text></Pressable>
       <Text className="text-xl font-bold text-white">Level map</Text>
       <View className="flex-row gap-2">{rooms.map((room) =>
@@ -259,7 +274,7 @@ export default function MapScreen() {
           className={room === level ? 'rounded bg-sky-800 p-2' : 'rounded bg-zinc-800 p-2'}>
           <Text className="text-white">{room.replace(' Levels', '').replace(' Level', '')}</Text>
         </Pressable>)}</View>
-      <Text className="text-xs text-slate-300">Choose your current floor. Paths are resident contributions. Walls and room layouts are unknown.</Text>
+      <Text className="text-xs text-slate-300">Choose your current floor. Overlapping recordings merge into the most supported route. Walls and room layouts are unknown.</Text>
       <View onLayout={({ nativeEvent }) => setSize(nativeEvent.layout)} style={{ height: 350, overflow: 'hidden', borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' }}>
         {segments}
         {position ? <View accessibilityLabel="Your estimated location, visible only to you" style={{ position: 'absolute', left: size.width / 2 - 7, top: size.height / 2 - 7, height: 14, width: 14, borderRadius: 7, backgroundColor: '#f8fafc', borderWidth: 3, borderColor: '#2563eb' }} /> : null}
@@ -270,9 +285,9 @@ export default function MapScreen() {
           <Text style={{ position: 'absolute', top: -15, left: 5, color: '#60a5fa', fontSize: 20 }}>▲</Text>
         </View> : null}
         {!tracks.some((path) => path.points.length > 1) ? <Text className="px-12 pt-24 text-slate-400">No paths recorded on this level yet.</Text> : null}
-        <MapControls width={size.width} height={size.height} scale={scale} zoom={setScale} heading={heading} />
-        {testing && recording ? <MapJoystick move={moveTest} /> : null}
+        <MapControls width={size.width} scale={scale} zoom={setScale} heading={heading} />
       </View>
+      <Text className="text-xs text-slate-400">Light blue: multiple recordings overlap · Blue: one recording · Nearby parallel routes may merge within about 6.5 ft.</Text>
       <Text className="text-xs text-slate-400">Map north stays up · Compass turns with your heading · Distances in feet and inches.</Text>
       <Text className="text-xs text-slate-300">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable · Start a walk to enable phone compass'}</Text>
       <Text className="text-xs text-slate-300">{position ? testing ? 'Simulated location' : 'Your estimated location · ±' + mapDistance(accuracy ?? 0) + ' · Private' : 'Location unavailable or tracking stopped'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
@@ -292,5 +307,6 @@ export default function MapScreen() {
       {message ? <Text className="text-sm text-slate-200">{message}</Text> : null}
       <Text className="text-xs text-slate-400">Recording stops when this map leaves the foreground. A shared route contains coordinates, but no name or live location marker.</Text>
     </ScrollView>
+    {testing && recording ? <MapJoystick move={moveTest} interaction={setUsingJoystick} /> : null}
   </SafeAreaView>;
 }
