@@ -200,3 +200,19 @@ export interface LevelTemperature {
   averageF: number | null;
 }
 export type LevelTemperatures = Record<Room, LevelTemperature>;
+
+
+export type MapPoint = { latitude: number; longitude: number };
+export type WalkPath = { id: string; level: Room; points: MapPoint[] };
+export const mapEvents = { read: 'map:read', contribute: 'map:contribute', path: 'map:path' };
+
+export function isWalkPath(value: unknown): value is WalkPath {
+  if (!value || typeof value !== 'object') return false;
+  const path = value as WalkPath;
+  return typeof path.id === 'string' && /^[0-9a-f-]{36}$/.test(path.id)
+    && isRoom(path.level) && Array.isArray(path.points)
+    && path.points.length >= 2 && path.points.length <= 300
+    && path.points.every((point) => point && Number.isFinite(point.latitude)
+      && Math.abs(point.latitude) <= 90 && Number.isFinite(point.longitude)
+      && Math.abs(point.longitude) <= 180);
+}

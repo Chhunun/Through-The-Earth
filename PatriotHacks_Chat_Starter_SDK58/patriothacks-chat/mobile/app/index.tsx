@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import TemperatureBar from '../src/TemperatureBar';
 // Mobile UI polish: start with POLISH 1 (header), then POLISH 2 (bubbles),
 // then POLISH 3 (composer). Save after each edit and check in Expo Go.
@@ -224,6 +225,10 @@ function ChatScreen() {
               <ProfileEditor profile={profile} online={online} save={saveProfile}
                              close={() => setEditingProfile(false)} />
           ) : null}
+          <Pressable accessibilityRole="button" onPress={() => router.push('/map')}
+            className="self-start rounded-lg bg-sky-900 px-3 py-2">
+            <Text className="font-semibold text-white">Open map</Text>
+          </Pressable>
           {/* Channel drawer. Change panel width and selected-row styling here. */}
           <Modal visible={channelsOpen} transparent animationType="fade"
                  onRequestClose={() => setChannelsOpen(false)}>
