@@ -182,5 +182,5 @@ const incidentTimer = setInterval(publishIncidents, 30_000);
 server.on('close', () => clearInterval(incidentTimer));
 
 server.listen(Number(process.env.PORT ?? 3000), '0.0.0.0', () => {
-  console.log('PatriotHacks relay listening on', server.address());
+  console.log('Through The Earth relay listening on', server.address());
 });

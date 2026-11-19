@@ -1,6 +1,25 @@
-# PatriotHacks Chat
+# Through The Earth
 
-Two phones exchange encrypted, one-to-one messages through a Socket.IO relay. This first milestone uses Wi-Fi or an internet connection to reach the relay. Phone-to-phone mesh routing is a future milestone, with the transport behind `mobile/src/transport.ts`.
+A community communication and early-warning app for the people of the Hollow (Patriot HackFest Fall 2026, "Life underground" track). Residents chat with their level, report conditions they observe, and get warned when their level is in trouble. Phones and a browser client connect through a Socket.IO relay. This milestone uses Wi-Fi or an internet connection to reach the relay. Phone-to-phone mesh routing is a future milestone, with the transport behind `mobile/src/transport.ts`.
+
+## Features
+
+- **Profiles:** each user picks a display name and a home level (Upper Level, Middle Level or Lower Levels). The relay saves profiles to `relay/profiles.local.json`.
+- **Level channels:** a public chat room per level, showing who belongs to it and how many members are online.
+- **Encrypted direct messages:** one-to-one NaCl-encrypted messages between public keys, with saved contacts.
+- **Check-ins and SOS:** one-tap "I'm okay", "are you okay?" and "SOS — I need help" messages to contacts.
+- **Level condition reports:** residents answer quick questions (air, power, lighting, supplies, illness, heat, lung symptoms) and can enter a measured temperature. Results are shown as charts per level.
+- **Warnings:** when 2 or more reports within 60 minutes describe power or airflow problems, the level gets an incident announcement. Answers at the most severe level are posted as severe warnings to that level's channel.
+- **Temperature bar:** the average reported temperature per level.
+
+## Project layout
+
+| Path | Purpose |
+| --- | --- |
+| `shared/index.ts` | Shared protocol: socket events, types, validators, report questions, level names. |
+| `relay/` | Express + Socket.IO relay: auth, message queue, rooms, reports, warnings, profiles. |
+| `mobile/` | Expo SDK 58 app (expo-router, NativeWind, Zustand, SQLite, SecureStore). |
+| `browser-chat.cjs` | Web client with the same features as the mobile app, served at http://localhost:4173. |
 
 ## Start the demo
 
@@ -26,20 +45,29 @@ Put both phones on the same Wi-Fi as the laptop and scan the Expo terminal QR. T
 2. Send a message from each phone. Close one app, send a message to it, reopen it, and paste the sender's key again to see the queued message.
 3. Restart the receiving app and paste the sender's key again to verify that the conversation restores from SQLite.
 
-## Work split
+### Browser client
 
-| Owner | Starting points | Next deliverable |
-| --- | --- | --- |
-| Person A | `relay/index.ts`, `mobile/src/crypto.ts` | Harden the relay for hosted use and add persistent queuing if needed. |
-| Person B | `mobile/app/`, `mobile/src/chat.ts`, `mobile/src/storage.ts`, `mobile/src/transport.ts` | Save contacts and add QR verification. Add notifications and location check-ins after the two-phone demo. |
-| Both | `shared/index.ts` | Coordinate changes to envelope fields and socket events. |
+With the relay running, start the web client in another terminal:
+
+```sh
+node browser-chat.cjs
+```
+
+Open http://localhost:4173. Each browser profile or private window gets its own identity, so you can open two windows to simulate two residents. Set `PATRIOT_RELAY_PORT` if the relay isn't on port 3000.
+
+## Adding a feature
+
+1. Add event names, types and validators to `shared/index.ts`.
+2. Handle the event in `relay/` and validate all input there.
+3. Build the UI in **both** `mobile/` and `browser-chat.cjs`.
+4. Run `npm run check`.
 
 ## Message flow
 
 - On first launch the app generates a NaCl box keypair and stores the private key in SecureStore. The relay issues an encrypted challenge before allowing a socket to send or read queued messages for the public key.
 - The sender encrypts the text and binds the message ID, participants, and timestamp inside the authenticated payload. The relay queues the encrypted envelope and acknowledges acceptance. This acknowledgement means the relay accepted the envelope.
 - The recipient decrypts and verifies the envelope, commits it to SQLite, then acknowledges receipt so the relay can remove it. SQLite stores envelopes only. The UI decrypts them into memory at launch.
-- The relay holds pending messages in memory, so a relay restart clears the queue. A send with an interrupted or timed-out acknowledgement has uncertain delivery. Persistent outgoing retries, delivery receipts, QR scanning, push, and location are future work. Public keys are pseudonyms. The relay can see routing metadata and timing. The demo uses long-lived keys and has no forward secrecy.
+- The relay holds pending messages, room history and level reports in memory, so a relay restart clears them. Only profiles persist. A send with an interrupted or timed-out acknowledgement has uncertain delivery. Persistent outgoing retries, delivery receipts, QR scanning, push, and location are future work. Public keys are pseudonyms. The relay can see routing metadata and timing. The demo uses long-lived keys and has no forward secrecy.
 
 ## Validation
 

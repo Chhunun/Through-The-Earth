@@ -128,7 +128,7 @@ function ChatScreen() {
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}>
             <View className="gap-3 rounded-2xl bg-zinc-900 p-5">
               <View className="flex-row flex-wrap justify-between gap-3">
-                <Text accessibilityRole="header" className="shrink text-xl font-semibold text-white">Sign in to PatriotHacks</Text>
+                <Text accessibilityRole="header" className="shrink text-xl font-semibold text-white">Sign in to Through The Earth</Text>
                 <LocalClock />
               </View>
               {!profile && (!online || !profilesReady) ? (

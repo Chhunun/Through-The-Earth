@@ -707,7 +707,7 @@ const page = `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PatriotHacks Chat</title>
+<title>Through The Earth</title>
 <style>
 *{box-sizing:border-box}
 body{background:#101822;color:#edf3fa;font:16px system-ui;margin:0}
@@ -766,12 +766,12 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 </style>
 <body class="sign-in">
 <aside id="chat-sidebar" hidden>
-<h1>PatriotHacks Chat</h1>
+<h1>Through The Earth</h1>
 <nav id="channels" aria-label="Channels"></nav>
 </aside>
 <main>
 <section id="sign-in-card">
-<h2>Sign in to PatriotHacks</h2>
+<h2>Sign in to Through The Earth</h2>
 <p id="sign-in-wait">Waiting for your profile from the relay…</p>
 <div id="existing-profile" hidden>
 <p id="sign-in-name"></p>
