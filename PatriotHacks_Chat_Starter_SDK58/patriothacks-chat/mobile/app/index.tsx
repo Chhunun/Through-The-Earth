@@ -7,6 +7,7 @@ import { checkInStatus, incidentLabels, incidentWindowMinutes, type CheckIn } fr
 import SavedContacts from '../src/SavedContacts';
 import ProfileEditor from '../src/ProfileEditor';
 import Announcements from '../src/Announcements';
+import DailyLog from '../src/DailyLog';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
@@ -16,6 +17,10 @@ import { addAccount, switchAccount } from '../src/crypto';
 
 // The list only needs these fields from either a room message or a direct message.
 type ChatItem = Pick<RoomMessage, 'id' | 'from' | 'text'>;
+
+// Tabs shown under a level. Daily log is personal, so it is the same on every level.
+const levelTabs = [['chat', 'Chat'], ['status', 'Status'], ['log', 'Daily log']] as const;
+type LevelTab = (typeof levelTabs)[number][0];
 
 export default function ChatRoute() {
   // Bumping the generation remounts ChatScreen, which starts a new relay session for the active account.
@@ -39,7 +44,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
   const chatList = useRef<FlatList<ChatItem>>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
-  const [announcements, setAnnouncements] = useState(false);
+  const [tab, setTab] = useState<LevelTab>('chat');
   const [editingProfile, setEditingProfile] = useState(false);
   // A room value selects a level. An undefined room means Direct chat.
   const [room, setRoom] = useState<Room>();
@@ -185,7 +190,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
     Keyboard.dismiss();
     setChannelsOpen(false);
     setEditingProfile(false);
-    setAnnouncements(false);
+    setTab('chat');
     setDraft('');
     setError('');
     setSignedIn(false);
@@ -360,7 +365,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
                                    setChannelsOpen(false);
                                    if (room === option) return;
                                    setRoom(option);
-                                   setAnnouncements(false);
+                                   setTab('chat');
                                    setDraft('');
                                    setError('');
                                  }}>
@@ -379,18 +384,18 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
           </Modal>
           {/* Level navigation. This is where a future Map tab would sit alongside Chat and Status. */}
           {room ? <View className="flex-row gap-2">
-            {[false, true].map((value) => (
-                <Pressable key={String(value)} accessibilityRole="tab"
-                           accessibilityState={{ selected: value === announcements }}
-                           className={value === announcements ? 'rounded-md bg-zinc-700 px-3 py-2' : 'rounded-md px-3 py-2'}
-                           onPress={() => setAnnouncements(value)}>
-                  <Text className="text-white">{value ? 'Status' : 'Chat'}</Text>
+            {levelTabs.map(([value, label]) => (
+                <Pressable key={value} accessibilityRole="tab"
+                           accessibilityState={{ selected: value === tab }}
+                           className={value === tab ? 'rounded-md bg-zinc-700 px-3 py-2' : 'rounded-md px-3 py-2'}
+                           onPress={() => setTab(value)}>
+                  <Text className="text-white">{label}</Text>
                 </Pressable>
             ))}
           </View> : null}
           {/* Room visibility note or Direct chat controls. */}
           {room ? <TemperatureBar reading={temperatures[room]} online={online} /> : null}
-          {room ? !announcements && <Text className="text-xs text-slate-300">
+          {room ? tab === 'chat' && <Text className="text-xs text-slate-300">
             Open demo room · Messages are visible to the relay.
           </Text> : <>
             {/* Direct chat: public key, sharing, recipient input, and saved contacts. */}
@@ -433,7 +438,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
           </>}
         </View>
         {/* Resident-report warnings belong above level chat. Keep counts and timestamps readable on small screens. */}
-        {room && !announcements && severeReports[room]?.length ? (
+        {room && tab === 'chat' && severeReports[room]?.length ? (
           <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-lg border border-rose-500 bg-rose-950 px-3 py-2">
             <Text className="font-bold text-rose-100">Severe · Resident reports</Text>
             {!online ? <Text className="text-xs text-rose-200">Relay offline · Showing last received warning</Text> : null}
@@ -446,7 +451,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
             </ScrollView>
           </View>
         ) : null}
-        {room && !announcements && incidents[room]?.length ? (
+        {room && tab === 'chat' && incidents[room]?.length ? (
             <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-lg border border-amber-700 bg-amber-950 px-3 py-2">
               <Text className="font-semibold text-amber-100">Early warning · Resident reports</Text>
               {!online ? <Text className="text-xs text-amber-200">Relay offline · Showing last received warning</Text> : null}
@@ -457,8 +462,9 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
               ))}
             </View>
         ) : null}
-        {/* Status renders its own component. Switching levels resets its local form state. */}
-        {room && announcements ? <Announcements key={room} online={online} ownKey={key} profiles={profiles} load={loadReport} /> : <>
+        {/* Status and Daily log render their own components. Switching levels resets Status form state. */}
+        {room && tab === 'status' ? <Announcements key={room} online={online} ownKey={key} profiles={profiles} load={loadReport} />
+          : room && tab === 'log' ? <DailyLog key={key} ownKey={key} /> : <>
           {/* Message-list spacing and empty states. The list scrolls to the bottom when the latest message is SOS. */}
           <FlatList<ChatItem> ref={chatList} className="flex-1"
                               onContentSizeChange={() => {

@@ -12,7 +12,7 @@ const browserCode = buildSync({
     contents: String.raw`
 import { io } from 'socket.io-client';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, parseChatProfile, profileEvents, profileLabel, rooms, roomEvents, parseLevelReport, reportEvents, reportPie, reportQuestions, sosMessage, checkInMessages, checkInStatus, incidentEvent, incidentLabels, incidentWindowMinutes, localClock } from './shared/index.ts';
+import { events, isEnvelope, isPublicKey, parseChatProfile, profileEvents, profileLabel, rooms, roomEvents, parseLevelReport, reportEvents, reportPie, reportQuestions, sosMessage, checkInMessages, checkInStatus, incidentEvent, incidentLabels, incidentWindowMinutes, localClock, dailyLogQuestions, dailyLogDay, dailyLogDayLabel, dailyLogNotesLimit, parseDailyLogEntry } from './shared/index.ts';
 
 const field = (id) => document.getElementById(id);
 function refreshClock() {
@@ -320,7 +320,7 @@ function removeAccount(secret, key) {
   const remaining = savedSecrets().filter((item) => item !== secret);
   try {
     localStorage.setItem(accountsSlot, JSON.stringify(remaining));
-    for (const prefix of ['patriothacks.contacts.v1:', 'patriothacks.check-ins.outbox:', 'patriothacks.check-ins.received:', 'patriothacks.check-ins.profile:']) {
+    for (const prefix of ['patriothacks.contacts.v1:', 'patriothacks.check-ins.outbox:', 'patriothacks.check-ins.received:', 'patriothacks.check-ins.profile:', 'patriothacks.daily-log:']) {
       localStorage.removeItem(prefix + key);
     }
     // With no accounts left, the next load creates a fresh identity.
@@ -521,13 +521,17 @@ for (const { id, label, choices } of reportQuestions) {
   questions.set(id, select);
 }
 
-function selectTab(announcements) {
+// selectTab(false) shows chat, selectTab(true) shows Stats, and selectTab(false, true) shows the daily log.
+function selectTab(announcements, log = false) {
   reportOpen = announcements;
   reportRequest++;
-  field('chat').hidden = announcements;
+  field('chat').hidden = announcements || log;
   field('report').hidden = !announcements;
-  field('chat-tab').setAttribute('aria-pressed', String(!announcements));
+  field('daily-log').hidden = !log;
+  field('chat-tab').setAttribute('aria-pressed', String(!announcements && !log));
   field('announcements-tab').setAttribute('aria-pressed', String(announcements));
+  field('log-tab').setAttribute('aria-pressed', String(log));
+  if (log) renderDailyLog();
   if (announcements) {
     field('report-status').textContent = '';
     field('report-count').textContent = '';
@@ -581,6 +585,85 @@ async function updateReport({ submit = false, hydrate = false } = {}) {
 field('chat-tab').addEventListener('click', () => selectTab(false));
 field('announcements-tab').addEventListener('click', () => {
   if (!reportOpen) selectTab(true);
+});
+field('log-tab').addEventListener('click', () => selectTab(false, true));
+
+// Daily log: a private record kept in this browser for the active account. It is never sent to the relay.
+const dailyLogSlot = 'patriothacks.daily-log:' + ownKey;
+const logSelects = new Map();
+for (const { id, label, choices } of dailyLogQuestions) {
+  const row = document.createElement('label');
+  row.textContent = label;
+  const select = document.createElement('select');
+  select.add(new Option('Not answered', ''));
+  for (const choice of choices) select.add(new Option(choice, choice));
+  row.append(select);
+  field('log-questions').append(row);
+  logSelects.set(id, select);
+}
+field('log-notes').maxLength = dailyLogNotesLimit;
+
+function readDailyLog() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(dailyLogSlot) ?? '{}');
+    return Object.values(stored ?? {}).map(parseDailyLogEntry).filter(Boolean)
+      .sort((a, b) => b.day.localeCompare(a.day));
+  } catch {
+    return [];
+  }
+}
+
+function renderDailyLog() {
+  const today = dailyLogDay();
+  const entries = readDailyLog();
+  const saved = entries.find((entry) => entry.day === today);
+  field('log-title').textContent = 'Daily log · ' + dailyLogDayLabel(today);
+  for (const [id, select] of logSelects) select.value = saved?.answers[id] ?? '';
+  field('log-notes').value = saved?.notes ?? '';
+  field('log-status').textContent = '';
+  const past = entries.filter((entry) => entry.day !== today).slice(0, 14);
+  field('log-empty').hidden = past.length > 0;
+  field('log-history').replaceChildren(...past.map((entry) => {
+    const card = document.createElement('article');
+    const heading = document.createElement('strong');
+    heading.textContent = dailyLogDayLabel(entry.day);
+    card.append(heading);
+    for (const { id, label } of dailyLogQuestions) {
+      if (!entry.answers[id]) continue;
+      const line = document.createElement('span');
+      line.textContent = label + ' · ' + entry.answers[id];
+      card.append(line);
+    }
+    if (entry.notes) {
+      const notes = document.createElement('span');
+      notes.className = 'log-notes';
+      notes.textContent = entry.notes;
+      card.append(notes);
+    }
+    return card;
+  }));
+}
+
+field('daily-log').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const answers = {};
+  for (const [id, select] of logSelects) if (select.value) answers[id] = select.value;
+  const notes = field('log-notes').value.trim();
+  if (!Object.keys(answers).length && !notes) {
+    field('log-status').textContent = 'Answer at least one question or add a note.';
+    return;
+  }
+  const day = dailyLogDay();
+  try {
+    const stored = JSON.parse(localStorage.getItem(dailyLogSlot) ?? '{}') ?? {};
+    stored[day] = { day, answers, notes, savedAt: Date.now() };
+    localStorage.setItem(dailyLogSlot, JSON.stringify(stored));
+  } catch {
+    field('log-status').textContent = 'Browser storage is unavailable, so the log could not be saved.';
+    return;
+  }
+  renderDailyLog();
+  field('log-status').textContent = 'Saved for ' + dailyLogDayLabel(day) + '.';
 });
 field('report').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -895,8 +978,11 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 #report-feed code{overflow-wrap:anywhere;color:#d4d4d8}
 #report-feed time{font-size:.85rem;color:#a1a1aa}
 #report-fields{border:0;margin:0;padding:0}
-#report-questions{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
-#report-questions select{display:block;margin-top:5px}
+#report-questions,#log-questions{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
+#report-questions select,#log-questions select{display:block;margin-top:5px}
+#log-history{display:grid;gap:8px;margin:12px 0}
+#log-history article{display:grid;gap:4px;background:#303036;padding:12px;border-radius:8px}
+.log-notes{color:#d4d4d8;white-space:pre-wrap;overflow-wrap:anywhere}
 </style>
 <body class="sign-in">
 <aside id="chat-sidebar" hidden>
@@ -942,6 +1028,7 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 <div id="level-tabs" hidden>
 <button type="button" id="chat-tab" aria-pressed="true">Chat</button>
 <button type="button" id="announcements-tab" aria-pressed="false">Stats</button>
+<button type="button" id="log-tab" aria-pressed="false">Daily log</button>
 </div>
 <form id="report" hidden>
 <h3>Level conditions</h3>
@@ -968,6 +1055,18 @@ li{white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 
 </fieldset>
 <p id="report-status" role="status"></p>
+</form>
+<form id="daily-log" hidden>
+<h3 id="log-title">Daily log</h3>
+<p>Only you can see this. It is saved in this browser and is never sent to the relay.</p>
+<div id="log-questions"></div>
+<label for="log-notes">Notes (optional)</label>
+<textarea id="log-notes" rows="3" placeholder="What you ate, symptoms, anything else"></textarea>
+<p id="log-status" role="status"></p>
+<button type="submit">Save today</button>
+<h4>Past days</h4>
+<p id="log-empty">No earlier entries yet.</p>
+<div id="log-history"></div>
 </form>
 <form id="chat">
 <section id="incident-banner" role="status" hidden>

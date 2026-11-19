@@ -11,6 +11,7 @@ A community communication and early-warning app for the people of the Hollow (Pa
 - **Level condition reports:** residents answer quick questions (air, power, lighting, supplies, illness, heat, lung symptoms) and can enter a measured temperature. Results are shown as charts per level.
 - **Warnings:** when 2 or more reports within 60 minutes describe power or airflow problems, the level gets an incident announcement. Answers at the most severe level are posted as severe warnings to that level's channel.
 - **Temperature bar:** the average reported temperature per level.
+- **Daily log:** a third tab next to Chat and Status where residents record their sleep, mood, body health and meals for the day, with optional notes, and see past days. It is private: entries are stored on the device for the signed-in account and never sent to the relay. The questions are `dailyLogQuestions` in `shared/index.ts`.
 
 ## Project layout
 
