@@ -6,3 +6,5 @@ dist/
 
 relay/profiles.local.json
 relay/profiles.local.json.tmp
+
+relay/maps.sqlite*
