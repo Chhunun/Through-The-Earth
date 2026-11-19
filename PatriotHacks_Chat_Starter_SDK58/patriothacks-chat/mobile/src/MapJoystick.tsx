@@ -54,7 +54,7 @@ export default function MapJoystick({ move, interaction }: Props) {
         // Full deflection walks at 2.5 meters per second.
         callbacks.current.move(x / 30 * 2.5 * seconds, -y / 30 * 2.5 * seconds);
       }
-    }, 100);
+    }, 200);
     return () => {
       clearInterval(timer);
       touching.current = false;
