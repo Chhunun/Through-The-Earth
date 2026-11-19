@@ -89,7 +89,7 @@ EXPO_PUBLIC_RELAY_URL=http://<your-laptop-IP>:3000
 npm run relay
 ```
 
-Leave it running. You should see `PatriotHacks relay listening on ...`.
+Leave it running. You should see `Through The Earth relay listening on ...`.
 
 ### 4. Start Expo (terminal 2)
 

@@ -1,4 +1,4 @@
-# Abyss: PatriotHacks Chat
+# Through The Earth
 
 A community communication and early-warning app for the people of the Hollow (Patriot HackFest Fall 2026, "Life underground" track). Residents chat with their level, report conditions they observe, and get warned when their level is in trouble. Phones and a browser client connect through a Socket.IO relay. This milestone uses Wi-Fi or an internet connection to reach the relay. Phone-to-phone mesh routing is a future milestone, with the transport behind `mobile/src/transport.ts`.
 
