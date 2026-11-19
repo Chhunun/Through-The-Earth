@@ -1,3 +1,4 @@
+import MapPathLayer from '../src/MapPathLayer';
 import { mergeWalkPaths } from '../src/mergeWalkPaths';
 import MapJoystick from '../src/MapJoystick';
 import { mapDistance } from '../src/mapScale';
@@ -20,6 +21,7 @@ export default function MapScreen() {
   const [headingSource, setHeadingSource] = useState('');
   const headingWatcher = useRef<Location.LocationSubscription | undefined>(undefined);
   const headingFreshAt = useRef(0);
+  const displayedHeading = useRef({ value: -1, at: 0 });
   const testPoint = useRef<MapPoint>({ latitude: 0, longitude: 0 });
   const [level, setLevel] = useState<Room>('Middle Level');
   const [paths, setPaths] = useState<WalkPath[]>([]);
@@ -45,6 +47,7 @@ export default function MapScreen() {
     watcher.current = undefined;
     headingWatcher.current?.remove();
     headingWatcher.current = undefined;
+    displayedHeading.current = { value: -1, at: 0 };
     setHeading(undefined);
     setHeadingSource('');
     setRecording(false);
@@ -125,6 +128,10 @@ export default function MapScreen() {
           const bearing = value.trueHeading >= 0 ? value.trueHeading : value.magHeading;
           if (!Number.isFinite(bearing) || bearing < 0) return;
           headingFreshAt.current = Date.now();
+          const previous = displayedHeading.current;
+          const difference = Math.abs(((bearing - previous.value + 540) % 360) - 180);
+          if (Date.now() - previous.at < 150 || (previous.value >= 0 && difference < 2)) return;
+          displayedHeading.current = { value: bearing, at: Date.now() };
           setHeading(bearing);
           setHeadingSource(value.trueHeading >= 0 ? 'Phone heading' : 'Magnetic heading');
         });
@@ -239,31 +246,8 @@ export default function MapScreen() {
   const merged = useMemo(() => mergeWalkPaths(
     (testing ? testPaths : paths).filter((path) => path.level === level),
   ), [testing, testPaths, paths, level]);
-  const drawing = [
-    ...merged,
-    ...(draft?.level === level ? draft.points.slice(1).map((point, index) => ({
-      id: draft.id + ':' + index, from: draft.points[index], to: point, recordings: 1,
-    })) : []),
-  ];
   const center = position ?? tracks[0]?.points[0];
-  function project(point: MapPoint) {
-    if (!center) return { x: size.width / 2, y: size.height / 2 };
-    return {
-      x: size.width / 2 + (point.longitude - center.longitude) * 111320 * Math.cos(center.latitude * Math.PI / 180) * scale,
-      y: size.height / 2 - (point.latitude - center.latitude) * 111320 * scale,
-    };
-  }
-  const segments = drawing.map((segment) => {
-    const a = project(segment.from);
-    const b = project(segment.to);
-    const width = Math.hypot(b.x - a.x, b.y - a.y);
-    return <View key={segment.id} pointerEvents="none" style={{
-      position: 'absolute', left: (a.x + b.x) / 2 - width / 2,
-      top: (a.y + b.y) / 2 - 1.5, width, height: 3,
-      backgroundColor: segment.recordings > 1 ? '#7dd3fc' : '#38bdf8',
-      transform: [{ rotate: Math.atan2(b.y - a.y, b.x - a.x) + 'rad' }],
-    }} />;
-  });
+
 
   return <SafeAreaView style={{ flex: 1, backgroundColor: '#020617' }}>
     <ScrollView scrollEnabled={!usingJoystick} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && recording ? 170 : 16 }}>
@@ -275,8 +259,12 @@ export default function MapScreen() {
           <Text className="text-white">{room.replace(' Levels', '').replace(' Level', '')}</Text>
         </Pressable>)}</View>
       <Text className="text-xs text-slate-300">Choose your current floor. Overlapping recordings merge into the most supported route. Walls and room layouts are unknown.</Text>
-      <View onLayout={({ nativeEvent }) => setSize(nativeEvent.layout)} style={{ height: 350, overflow: 'hidden', borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' }}>
-        {segments}
+      <View onLayout={({ nativeEvent }) => {
+        const { width, height } = nativeEvent.layout;
+        setSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
+      }} style={{ height: 350, overflow: 'hidden', borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' }}>
+        <MapPathLayer segments={merged} draft={draft?.level === level ? draft : undefined}
+          center={center} width={size.width} height={size.height} scale={scale} />
         {position ? <View accessibilityLabel="Your estimated location, visible only to you" style={{ position: 'absolute', left: size.width / 2 - 7, top: size.height / 2 - 7, height: 14, width: 14, borderRadius: 7, backgroundColor: '#f8fafc', borderWidth: 3, borderColor: '#2563eb' }} /> : null}
         {position && heading !== undefined ? <View pointerEvents="none" style={{
           position: 'absolute', left: size.width / 2 - 14, top: size.height / 2 - 14,

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { mapDistance, mapRulerStep } from './mapScale';
 
@@ -8,7 +9,7 @@ type Props = {
   heading?: number;
 };
 
-export default function MapControls({ width, scale, zoom, heading }: Props) {
+export default memo(function MapControls({ width, scale, zoom, heading }: Props) {
   // Choose a readable distance whose on-screen length fits beside the zoom buttons.
   const maxLength = Math.max(30, Math.min(125, width - 100));
   let step = mapRulerStep(scale);
@@ -56,7 +57,7 @@ export default function MapControls({ width, scale, zoom, heading }: Props) {
       </View>
     </>
   );
-}
+});
 
 const styles = StyleSheet.create({
   scale: { position: 'absolute', left: 10, bottom: 10, padding: 7, borderRadius: 4,
