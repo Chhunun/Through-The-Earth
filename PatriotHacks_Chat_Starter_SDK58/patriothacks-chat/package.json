@@ -1,1 +1,23 @@
-{"name":"patriothacks-chat","private":true,"workspaces":["mobile","relay","shared"],"scripts":{"relay":"npm run dev -w relay","mobile":"npm run start -w mobile","check":"npm run check --workspaces --if-present"},"devDependencies":{"typescript":"~5.9.2"},"allowScripts":{"esbuild@0.28.2":true}}
+{
+  "name": "patriothacks-chat",
+  "private": true,
+  "workspaces": [
+    "mobile",
+    "relay",
+    "shared"
+  ],
+  "scripts": {
+    "relay": "npm run dev -w relay",
+    "mobile": "npm run start -w mobile",
+    "check": "npm run check --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  },
+  "dependencies": {
+    "react-native-web": "^0.21.4"
+  }
+}
