@@ -10,6 +10,7 @@ import SavedContacts from '../src/SavedContacts';
 import ProfileEditor from '../src/ProfileEditor';
 import Announcements from '../src/Announcements';
 import DailyLog from '../src/DailyLog';
+import { RaiseWarningButton, RaiseWarningModal, WarningBanner, useWarningActions } from '../src/HazardWarnings';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
@@ -40,7 +41,7 @@ export default function ChatRoute() {
 
 function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (autoSignIn: boolean) => void }) {
   // Shared state comes from the chat store. The useState calls below hold screen-only state.
-  const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents, presence, severeReports, temperatures } = useChat();
+  const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents, presence, severeReports, temperatures, warnings } = useChat();
   // Refs keep the connection and list handles across renders without causing a redraw.
   const session = useRef<Awaited<ReturnType<typeof startChat>>>(undefined);
   const chatList = useRef<FlatList<ChatItem>>(null);
@@ -57,6 +58,8 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
   const [sending, setSending] = useState(false);
   const [accounts, setAccounts] = useState<SavedAccount[]>([]);
   const [switching, setSwitching] = useState(false);
+  const [warningOpen, setWarningOpen] = useState(false);
+  const warningActions = useWarningActions();
   // Trim a pasted public key, reject our own key, and choose the visible conversation.
   const recipient = peer.trim();
   const validPeer = isPublicKey(recipient) && recipient !== key;
@@ -192,6 +195,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
     Keyboard.dismiss();
     setChannelsOpen(false);
     setEditingProfile(false);
+    setWarningOpen(false);
     setTab('chat');
     setDraft('');
     setError('');
@@ -345,10 +349,16 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
               <ProfileEditor profile={profile} online={online} save={saveProfile}
                              close={() => setEditingProfile(false)} />
           ) : null}
-          <Pressable accessibilityRole="button" onPress={() => router.push('/map')}
-            className="self-start rounded-sm bg-term-active border border-term-text px-3 py-2">
-            <Text className="font-mono font-semibold text-term-text">Open map</Text>
-          </Pressable>
+          <View className="flex-row flex-wrap gap-2">
+            <Pressable accessibilityRole="button" onPress={() => router.push('/map')}
+              className="rounded-sm bg-term-active border border-term-text px-3 py-2">
+              <Text className="font-mono font-semibold text-term-text">Open map</Text>
+            </Pressable>
+            {/* Warning system: alert every resident to an air cutout or bad water. Also on the map screen. */}
+            <RaiseWarningButton onPress={() => { Keyboard.dismiss(); setWarningOpen(true); }} />
+          </View>
+          <RaiseWarningModal visible={warningOpen} online={online} defaultLevel={room ?? profile?.level}
+                             submit={warningActions.raise} close={() => setWarningOpen(false)} />
           {/* Channel drawer. Change panel width and selected-row styling here. */}
           <Modal visible={channelsOpen} transparent animationType="fade"
                  onRequestClose={() => setChannelsOpen(false)}>
@@ -443,6 +453,9 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
             ) : null}
           </>}
         </View>
+        {/* Hazard warnings show on every tab and in Direct chat, because they concern every resident. */}
+        <WarningBanner warnings={warnings} ownKey={key} online={online} homeLevel={profile?.level} busy={warningActions.busy}
+                       confirm={warningActions.confirm} clear={warningActions.clear} />
         {/* Resident-report warnings belong above level chat. Keep counts and timestamps readable on small screens. */}
         {room && tab === 'chat' && severeReports[room]?.length ? (
           <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-sm border border-rose-500 bg-rose-950 px-3 py-2">

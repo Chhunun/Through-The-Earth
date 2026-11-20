@@ -15,6 +15,8 @@ In 2087, two billion people live in the Hollow, a stack of underground levels wh
 | **Condition reports** | Residents report air, power, lighting, supplies, visible illness, heat and lung symptoms, plus an optional measured temperature. Results show as charts per level. | 1, 3, 9 |
 | **Automatic warnings** | 2 or more power or airflow reports from a level within 60 minutes create an incident announcement. The most severe answers are posted as warnings in that level's channel. | 1 (warning before power or air fails), 9 |
 | **Temperature bar** | The average temperature residents reported for each level. | 3 (heat in the deep levels) |
+| **Hazard warnings** | A "⚠ Raise warning" button alerts every signed-in resident to an air cutout or bad water on a level, with an optional note on where. Others can confirm it. Each resident's warning lasts 60 minutes unless they renew or clear it. | 1 (air), 4 (bad water) |
+| **Daily log** | A private record of sleep, mood, body health and meals. It stays on the device and is never sent to the relay. | 11, 12 |
 
 ## How it works
 
@@ -36,8 +38,8 @@ All code is in [`PatriotHacks_Chat_Starter_SDK58/patriothacks-chat/`](PatriotHac
 **Data and privacy**
 - Each device creates its own encryption keypair on first launch; the public key is the user's identity.
 - Direct messages are encrypted with NaCl, so the relay can't read them.
-- Level channels and reports are visible to everyone.
-- The relay keeps messages, channel history and reports in memory, so restarting it clears them. Only profiles are saved, to `relay/profiles.local.json`.
+- Level channels, reports and hazard warnings are visible to everyone.
+- The relay keeps messages, channel history, reports and hazard warnings in memory, so restarting it clears them. Only profiles are saved, to `relay/profiles.local.json`.
 
 ## Requirements
 

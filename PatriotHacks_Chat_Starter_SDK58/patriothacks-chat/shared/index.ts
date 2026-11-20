@@ -244,6 +244,48 @@ export interface LevelTemperature {
 }
 export type LevelTemperatures = Record<Room, LevelTemperature>;
 
+// Hazard warnings: a resident raises one for a level and every signed-in resident sees it.
+// Each resident's warning stays active for warningActiveMinutes unless they raise it again or clear it.
+export const hazardLabels = {
+  air: 'Air cutout',
+  water: 'Bad water',
+} as const;
+export type HazardKind = keyof typeof hazardLabels;
+export const hazardKinds = Object.keys(hazardLabels) as HazardKind[];
+export const isHazardKind = (value: unknown): value is HazardKind =>
+  hazardKinds.some((kind) => kind === value);
+export const warningActiveMinutes = 60;
+export const warningNoteLimit = 120;
+export const warningEvents = {
+  raise: 'warning:raise',
+  clear: 'warning:clear',
+  snapshot: 'warning:snapshot',
+} as const;
+
+export interface WarningRequest {
+  level: Room;
+  kind: HazardKind;
+  note: string; // Where on the level, '' when not given
+}
+export interface HazardWarning {
+  level: Room;
+  kind: HazardKind;
+  reporters: string[]; // Public keys of everyone who raised or confirmed it, newest first
+  latestAt: number;
+  note: string; // The newest non-empty note
+}
+// Newest first, across all levels, because every resident sees every warning.
+export type WarningSnapshot = HazardWarning[];
+
+export function parseWarningRequest(input: unknown): WarningRequest | undefined {
+  if (!input || typeof input !== 'object') return;
+  const { level, kind, note } = input as Record<string, unknown>;
+  if (!isRoom(level) || !isHazardKind(kind) || (note !== undefined && typeof note !== 'string')) return;
+  const text = (note ?? '').trim();
+  if (text.length > warningNoteLimit || /[\x00-\x1f\x7f]/.test(text)) return;
+  return { level, kind, note: text };
+}
+
 
 export type MapPoint = { latitude: number; longitude: number };
 export type WalkPath = { id: string; level: Room; points: MapPoint[] };
