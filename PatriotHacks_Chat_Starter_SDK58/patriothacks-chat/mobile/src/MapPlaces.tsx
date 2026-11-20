@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import BlockPassageButton from './BlockPassageButton';
 import DraggableMapPin from './DraggableMapPin';
 import { pointOnMap, stackMapPlaces } from './mapMarkerLayout';
@@ -74,7 +75,8 @@ export function MapPlaceLayer({ places, center, originLatitude, scale, width, he
   </>;
 }
 
-export function MapPlacesPanel({ level, target, picked, clearPicked, places, online, disabled, create, inspect, focus, blockPlacement }: {
+export function MapPlacesPanel({ level, target, picked, clearPicked, places, online, disabled, create, inspect, focus, blockPlacement, walkControl }: {
+  walkControl: ReactNode;
   blockPlacement: {
     begin: () => Promise<void>; preview: (x: number, y: number) => void;
     finish: (drop?: { x: number; y: number }) => Promise<void>; cancel: () => void;
@@ -111,6 +113,7 @@ export function MapPlacesPanel({ level, target, picked, clearPicked, places, onl
     <Text className="text-xs text-slate-300">{picked ? 'Using the orange target. ' : 'Using your location. '}Hold on the map to choose another spot.</Text>
     {picked ? <Pressable onPress={clearPicked}><Text className="text-sky-300">Use my location instead</Text></Pressable> : null}
     <View className="flex-row flex-wrap gap-2">
+      {walkControl}
       {(['personal', 'blackout'] as const).map((value) => <Pressable key={value}
         disabled={disabled || saving} onPress={() => open(value)} className="rounded bg-slate-800 p-3">
         <Text style={{ color: placeColor(value) }}>{value === 'personal' ? 'Save pin' : 'Report blackout'}</Text>
