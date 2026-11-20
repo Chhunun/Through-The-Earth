@@ -1,6 +1,6 @@
 import type { Server, Socket } from 'socket.io';
 import { isRoom, type Room, type ChatProfile, type Ack } from '@patriot/protocol';
-import { mapPingEvents, pingLifetimeMs, validPingPoint, type MapPing, type PingSnapshot } from '../shared/mapPings.js';
+import { mapPingEvents, pingLifetimeMs, validPingPoint, canUseMapTesting, type MapPing, type PingSnapshot } from '../shared/mapPings.js';
 
 const pings = new Map<string, MapPing>();
 const revisions = new Map<Room, number>();
@@ -17,7 +17,7 @@ export function registerMapPings(io: Server, socket: Socket, authenticated: () =
     revisions.set(level, (revisions.get(level) ?? 0) + 1);
     const value = snapshot(level);
     for (const peer of io.sockets.sockets.values()) {
-      if (peer.rooms.has(channel(level)) && getProfile(peer.data.publicKey)?.level === level) peer.emit(mapPingEvents.snapshot, value);
+      if (peer.rooms.has(channel(level)) && getProfile(peer.data.publicKey)) peer.emit(mapPingEvents.snapshot, value);
     }
   }
   if (!timer) {
@@ -31,21 +31,23 @@ export function registerMapPings(io: Server, socket: Socket, authenticated: () =
   }
   socket.on(mapPingEvents.watch, async (level: unknown, reply: (result: { ok: true; snapshot: PingSnapshot } | { ok: false; error: string }) => void) => {
     if (typeof reply !== 'function') return;
-    if (!authenticated() || !isRoom(level) || getProfile(socket.data.publicKey)?.level !== level) {
-      reply({ ok: false, error: 'Location pings are only available on your profile level.' }); return;
+    if (!authenticated() || !isRoom(level) || !getProfile(socket.data.publicKey)) {
+      reply({ ok: false, error: 'Sign in and choose a valid map level to view location pings.' }); return;
     }
     for (const room of [...socket.rooms]) if (room.startsWith('map-pings:')) await socket.leave(room);
     await socket.join(channel(level));
-    if (!socket.connected || getProfile(socket.data.publicKey)?.level !== level) return;
+    if (!socket.connected || !getProfile(socket.data.publicKey)) return;
     reply({ ok: true, snapshot: snapshot(level) });
   });
   socket.on(mapPingEvents.send, (request: unknown, reply: (ack: Ack) => void) => {
     if (typeof reply !== 'function') return;
     const profile = getProfile(socket.data.publicKey);
     const value = request as Partial<MapPing> | null;
-    if (!authenticated() || !profile || !value || value.level !== profile.level
+    if (!authenticated() || !profile || !value || !isRoom(value.level)
       || typeof value.id !== 'string' || !/^[0-9a-f-]{36}$/.test(value.id)
       || !validPingPoint(value.point) || typeof value.emergency !== 'boolean'
+      || (value.simulated !== undefined && typeof value.simulated !== 'boolean')
+      || (value.simulated === true && !canUseMapTesting(profile.name))
       || typeof value.accuracy !== 'number' || !Number.isFinite(value.accuracy) || value.accuracy < 0 || value.accuracy > 1000) {
       reply({ ok: false, error: 'Invalid ping, location, or level.' }); return;
     }
@@ -55,12 +57,12 @@ export function registerMapPings(io: Server, socket: Socket, authenticated: () =
     if (Date.now() - (lastSent.get(key) ?? 0) < 5000) { reply({ ok: false, error: 'Wait five seconds before sending another ping.' }); return; }
     if (!previous && pings.size >= 1000) { reply({ ok: false, error: 'The level ping service is full.' }); return; }
     const now = Date.now();
-    pings.set(key, { id: value.id, from: key, name: profile.name, level: profile.level,
+    pings.set(key, { id: value.id, from: key, name: profile.name, level: value.level, simulated: value.simulated === true,
       point: { latitude: value.point.latitude, longitude: value.point.longitude }, emergency: value.emergency,
       accuracy: value.accuracy, sentAt: now, expiresAt: now + pingLifetimeMs });
     lastSent.set(key, now);
-    if (previous && previous.level !== profile.level) broadcast(previous.level);
-    broadcast(profile.level);
+    if (previous && previous.level !== value.level) broadcast(previous.level);
+    broadcast(value.level);
     reply({ ok: true });
   });
   socket.on(mapPingEvents.stop, (reply: (ack: Ack) => void) => {

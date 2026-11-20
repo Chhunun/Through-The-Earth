@@ -3,7 +3,7 @@ export const pingLifetimeMs = 60_000;
 export const mapPingEvents = { watch: 'map:ping:watch', send: 'map:ping:send', stop: 'map:ping:stop', snapshot: 'map:ping:snapshot' };
 export interface MapPing {
   id: string; from: string; name: string; level: Room; point: MapPoint;
-  emergency: boolean; accuracy: number; sentAt: number; expiresAt: number;
+  emergency: boolean; simulated?: boolean; accuracy: number; sentAt: number; expiresAt: number;
 }
 export type PingSnapshot = { level: Room; revision: number; pings: MapPing[] };
 export function validPingPoint(value: unknown): value is MapPoint {
@@ -17,6 +17,10 @@ export function isPingSnapshot(value: unknown): value is PingSnapshot {
   return isRoom(s.level) && Number.isSafeInteger(s.revision) && s.revision >= 0
     && Array.isArray(s.pings) && s.pings.length <= 1000 && s.pings.every((p) => p && typeof p.id === 'string'
       && typeof p.from === 'string' && typeof p.name === 'string' && p.name.length <= 40 && p.level === s.level
-      && validPingPoint(p.point) && typeof p.emergency === 'boolean' && Number.isFinite(p.accuracy) && p.accuracy >= 0
+      && validPingPoint(p.point) && typeof p.emergency === 'boolean' && (p.simulated === undefined || typeof p.simulated === 'boolean') && Number.isFinite(p.accuracy) && p.accuracy >= 0
       && Number.isSafeInteger(p.sentAt) && p.expiresAt === p.sentAt + pingLifetimeMs);
+}
+
+export function canUseMapTesting(name: unknown): boolean {
+  return typeof name === 'string' && ['test', 'tester'].includes(name.trim().toLowerCase());
 }

@@ -70,9 +70,9 @@ export function useMapPings(level: Room | undefined, expectedKey: string) {
   }, [level, expectedKey, foreground]);
   return {
     pings, online, error,
-    async publish(id: string, point: MapPoint, accuracy: number, emergency: boolean) {
-      if (!ready.current || !socketRef.current) throw new Error('Connect to the relay on your own level to send a location ping.');
-      const ack: Ack = await socketRef.current.timeout(5000).emitWithAck(mapPingEvents.send, { id, level, point, accuracy, emergency });
+    async publish(id: string, point: MapPoint, accuracy: number, emergency: boolean, simulated = false) {
+      if (!ready.current || !socketRef.current) throw new Error('Connect to the relay to send a location ping.');
+      const ack: Ack = await socketRef.current.timeout(5000).emitWithAck(mapPingEvents.send, { id, level, point, accuracy, emergency, simulated });
       if (!ack.ok) throw new Error(ack.error);
     },
     async stop() {

@@ -1,6 +1,7 @@
 import MapPingLayer from '../src/MapPingLayer';
 import MapPingList from '../src/MapPingList';
 import { useMapPings } from '../src/useMapPings';
+import { canUseMapTesting } from '../../shared/mapPings';
 import MapPathsPanel from '../src/MapPathsPanel';
 import term from '../src/terminal-colors.json';
 import { cacheSharedPath, loadRemovedPathIds, loadSharedPathIds } from '../src/mapStorage';
@@ -33,7 +34,7 @@ export default function MapScreen() {
   const [sharedPathIds, setSharedPathIds] = useState(new Set<string>());
   const [selectedPathId, setSelectedPathId] = useState<string>();
   const [changingPath, setChangingPath] = useState(false);
-  const canTest = useChat((state) => state.profiles[state.key]?.name === 'test');
+  const canTest = useChat((state) => canUseMapTesting(state.profiles[state.key]?.name));
   // Hazard warnings go through the chat screen's relay session, which stays open underneath the map.
   const warnings = useChat((state) => state.warnings);
   const ownKey = useChat((state) => state.key);
@@ -64,7 +65,7 @@ export default function MapScreen() {
   const lastRecordedAt = useRef(0);
   const testPoint = useRef<MapPoint>({ latitude: 0, longitude: 0 });
   const [level, setLevel] = useState<Room>('Middle Level');
-  const locationPings = useMapPings(!testing && level === ownLevel ? level : undefined, ownKey);
+  const locationPings = useMapPings(level, ownKey);
   const [paths, setPaths] = useState<WalkPath[]>([]);
   const [simPosition, setSimPosition] = useState<MapPoint>();
   const position = testing ? simPosition : live.fix;
@@ -244,16 +245,17 @@ export default function MapScreen() {
   }
 
   function moveTest(east: number, north: number) {
-    if (!canTest || !testing || !recording || !walk.current) return;
+    if (!canTest || !testing) return;
     const last = testPoint.current;
     const next = { latitude: last.latitude + north / 111320,
       longitude: last.longitude + east / (111320 * Math.cos(last.latitude * Math.PI / 180)) };
     testPoint.current = next;
     const path = walk.current;
-    path.points = [...path.points, next];
     setSimPosition(next);
-    setDraft({ ...path });
     setSimHeading((Math.atan2(east, north) * 180 / Math.PI + 360) % 360);
+    if (!recording || !path) return;
+    path.points = [...path.points, next];
+    setDraft({ ...path });
     if (path.points.length >= 300) {
       stop();
       setMessage('Test path limit reached. Save or discard this segment.');
@@ -264,7 +266,7 @@ export default function MapScreen() {
     if (!canTest || recording || busy || draft) return;
     stop();
     testPoint.current = { latitude: 0, longitude: 0 };
-    setSimPosition(undefined);
+    setSimPosition(testing ? undefined : { ...testPoint.current });
     setSimHeading(undefined);
     setCamera(undefined);
     setPicked(undefined);
@@ -382,28 +384,31 @@ export default function MapScreen() {
     await createPlace('block', 'Blocked passage', 'Some areas dark', point, Crypto.randomUUID());
   }
 
+  const validPingPosition = testing ? canTest && !!simPosition : !!live.fix && !live.stale && live.fix.accuracy !== null;
   function confirmPing() {
-    const fix = live.fix;
-    if (testing || level !== ownLevel || !fix || live.stale || fix.accuracy === null) {
-      setMessage('A fresh real location fix on your profile level is required to ping.'); return;
+    const simulated = testing && canTest;
+    const fix = simulated && simPosition ? { ...simPosition, accuracy: 0, timestamp: Date.now() } : live.fix;
+    if (!validPingPosition || !fix || fix.accuracy === null) {
+      setMessage('Wait for a fresh location fix, or use the test joystick with a tester profile.'); return;
     }
     const publish = (emergency: boolean) => {
       void (async () => {
         setPingPending(true);
         try {
-          if (Date.now() - fix.timestamp > 15000) throw new Error('Location became outdated. Open Ping my location again.');
-          await locationPings.publish(Crypto.randomUUID(), { latitude: fix.latitude, longitude: fix.longitude }, fix.accuracy!, emergency);
-          setMessage('Your position is shared with your level for 60 seconds.');
+          if (!simulated && Date.now() - fix.timestamp > 15000) throw new Error('Location became outdated. Open Ping my location again.');
+          await locationPings.publish(Crypto.randomUUID(), { latitude: fix.latitude, longitude: fix.longitude }, fix.accuracy!, emergency, simulated);
+          setMessage((simulated ? 'TEST position' : 'Your position') + ' shared on ' + level + ' for 60 seconds.');
         } catch (error) { setMessage(String(error)); }
         finally { setPingPending(false); }
       })();
     };
-    Alert.alert('Share your location with ' + level + '?',
-      'Your name and this position will be visible to residents of this level for 60 seconds. This shares one position, not a live tracking feed.',
+    Alert.alert((simulated ? 'Share TEST position on ' : 'Share your location on ') + level + '?',
+      'Your name and this position will be visible to everyone viewing this map level for 60 seconds.' +
+      (simulated ? ' This is a simulated joystick position labelled TEST.' : ' This shares one position, not a live tracking feed.'),
       [{ text: 'Cancel', style: 'cancel' }, { text: 'Share position', onPress: () => publish(false) },
         { text: 'Emergency ping', onPress: () => publish(true) }]);
   }
-  const pingControl = <Pressable accessibilityRole="button" disabled={pingPending || !locationPings.online || live.stale || !position || level !== ownLevel || draggingPin}
+  const pingControl = <Pressable accessibilityRole="button" disabled={pingPending || !locationPings.online || !validPingPosition || draggingPin}
     onPress={confirmPing} className="rounded bg-term-active border border-term-text p-3 disabled:opacity-50">
     <Text className="font-mono font-semibold text-term-glow">{pingPending ? 'Sharing…' : 'Ping my location'}</Text>
   </Pressable>;
@@ -413,7 +418,7 @@ export default function MapScreen() {
   </Pressable>;
 
   return <SafeAreaView ref={rootView} collapsable={false} style={{ flex: 1, backgroundColor: term.bg }}>
-    <ScrollView scrollEnabled={!usingJoystick && !draggingPin} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && recording ? 170 : 16 }}>
+    <ScrollView scrollEnabled={!usingJoystick && !draggingPin} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && canTest ? 170 : 16 }}>
       <Pressable onPress={() => router.back()} accessibilityRole="button"><Text className="font-mono font-semibold text-term-glow">‹ Social network</Text></Pressable>
       <Text accessibilityRole="header" className="font-mono uppercase tracking-widest text-xl font-bold text-term-glow">Level map</Text>
       {/* Warning system. The form starts on the floor shown on the map. */}
@@ -450,8 +455,8 @@ export default function MapScreen() {
           scale={scale} width={size.width} height={size.height} picked={picked}
           pick={setPicked} inspect={inspectPlace} move={movePlace} online={online}
           interaction={(value) => { if (value && center) setCamera({ ...center }); setDraggingPin(value); }} /> : null}
-        {!testing ? <MapPingLayer pings={locationPings.pings} center={center} originLatitude={originLatitude}
-          scale={scale} width={size.width} height={size.height} /> : null}
+        <MapPingLayer pings={locationPings.pings} center={center} originLatitude={originLatitude}
+          scale={scale} width={size.width} height={size.height} />
         <MapControls width={size.width} scale={scale} zoom={setScale} heading={heading} />
       </View>
       {camera ? <Pressable onPress={() => setCamera(undefined)}><Text className="font-mono text-term-glow">Follow my location</Text></Pressable> : null}
@@ -464,11 +469,10 @@ export default function MapScreen() {
           finish: finishBlockPlacement,
           cancel: () => { dropFrame.current = undefined; setBlockGhost(undefined); setDraggingPin(false); },
         }} /> : null}
-      {!testing ? <MapPingList pings={locationPings.pings} ownKey={ownKey} pending={pingPending} focus={setCamera}
-        stop={() => { void locationPings.stop().then(() => setMessage('Your ping was removed.')).catch((error) => setMessage(String(error))); }} /> : null}
+      <MapPingList pings={locationPings.pings} ownKey={ownKey} pending={pingPending} focus={setCamera}
+        stop={() => { void locationPings.stop().then(() => setMessage('Your ping was removed.')).catch((error) => setMessage(String(error))); }} />
       {!testing ? <Text className="font-mono text-xs text-term-muted">Cyan ripple: shared position · Red ripple: emergency location · Pings expire after 60 seconds.</Text> : null}
-      {!testing && level !== ownLevel ? <Text className="font-mono text-xs text-term-muted">Location pings are available on your profile level.</Text> : null}
-      {!testing && locationPings.error ? <Text className="font-mono text-xs text-amber-200">{locationPings.error}</Text> : null}
+      {locationPings.error ? <Text className="font-mono text-xs text-amber-200">{locationPings.error}</Text> : null}
       {!testing ? <MapPathsPanel paths={visible} sharedIds={sharedPathIds} selectedId={selectedPathId}
         level={level} ownLevel={ownLevel} online={online} pending={changingPath}
         select={(path) => { setSelectedPathId(path.id); setCamera(path.points[0]); }}
@@ -484,8 +488,8 @@ export default function MapScreen() {
         disabled={recording || busy || !!draft || draggingPin} onPress={toggleTesting} className="self-start rounded bg-term-field border border-term-line p-3">
         <Text className="font-mono text-term-text">{testing ? 'Test joystick: on' : 'Test joystick: off'}</Text>
       </Pressable> : null}
-      {testing ? <Text className="font-mono text-xs text-amber-200">Simulation · Test paths stay in this session. Choose Record walk, then drag the joystick.</Text> : null}
-      {testing ? <View className="flex-row flex-wrap gap-2">{recordWalkControl}</View> : null}
+      {testing ? <Text className="font-mono text-xs text-amber-200">Simulation · Move with the joystick. Record walk saves a test path locally; shared test pings are labelled TEST.</Text> : null}
+      {testing ? <View className="flex-row flex-wrap gap-2">{recordWalkControl}{pingControl}</View> : null}
       {draft ? <View className="flex-row flex-wrap gap-2">
         <Pressable disabled={busy} className="rounded bg-term-field border border-term-line p-3" onPress={() => { void save(false); }}><Text className="font-mono text-term-text">{testing ? 'Keep test path' : 'Save locally'}</Text></Pressable>
         {!testing ? <Pressable disabled={busy} className="rounded bg-term-active border border-term-text p-3" onPress={() => Alert.alert('Share this route?', 'Everyone connected to this relay can see its coordinates. The route may reveal places you visited.', [{ text: 'Cancel' }, { text: 'Share path', onPress: () => { void save(true); } }])}><Text className="font-mono text-term-text">Share path</Text></Pressable> : null}
@@ -499,6 +503,6 @@ export default function MapScreen() {
       borderWidth: 2, borderColor: '#fb7185', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
       <Text className="font-mono" style={{ color: '#ffe4e6', fontWeight: 'bold', fontSize: 24 }}>✕</Text>
     </View> : null}
-    {canTest && testing && recording ? <MapJoystick move={moveTest} interaction={setUsingJoystick} /> : null}
+    {canTest && testing ? <MapJoystick move={moveTest} interaction={setUsingJoystick} /> : null}
   </SafeAreaView>;
 }

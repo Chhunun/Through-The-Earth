@@ -21,7 +21,6 @@ import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Press
 import { isPublicKey, profileLabel, rooms, sosMessage, type ChatProfile, type Room, type RoomMessage, type LevelReport } from '@patriot/protocol';
 import { removeSavedAccount, resetChat, savedAccounts, startChat, useChat, type SavedAccount } from '../src/chat';
 import { addAccount, switchAccount } from '../src/crypto';
-
 // The list only needs these fields from either a room message or a direct message.
 type ChatItem = Pick<RoomMessage, 'id' | 'from' | 'text'>;
 

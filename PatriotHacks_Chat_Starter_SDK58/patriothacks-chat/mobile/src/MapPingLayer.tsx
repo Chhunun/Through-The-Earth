@@ -21,7 +21,7 @@ function Pulse({ ping, x, y }: { ping: MapPing; x: number; y: number }) {
     <View style={{ position: 'absolute', left: -6, top: -6, width: 12, height: 12, borderRadius: 6, backgroundColor: color, borderWidth: 2, borderColor: '#fff' }} />
     <Text numberOfLines={1} style={{ position: 'absolute', left: 10, top: -12, maxWidth: 150,
       paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, color, backgroundColor: '#020617', fontWeight: 'bold', fontSize: 12 }}>
-      {ping.emergency ? 'SOS · ' : ''}{ping.name}
+      {ping.simulated ? 'TEST · ' : ''}{ping.emergency ? 'SOS · ' : ''}{ping.name}
     </Text>
   </View>;
 }

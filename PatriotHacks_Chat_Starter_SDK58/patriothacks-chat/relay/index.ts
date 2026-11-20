@@ -41,6 +41,8 @@ function publishPresence() {
   io.to('room-readers').emit(levelPresenceEvent, counts);
 }
 
+import { registerMapPings } from './mapPings.js';
+
 io.on('connection', (socket) => {
   const key: string = socket.data.publicKey;
   const token = randomBytes(32);
@@ -111,6 +113,8 @@ io.on('connection', (socket) => {
     publishWarnings();
     reply({ ok: true });
   });
+
+  registerMapPings(io, socket, () => authenticated, (key) => profiles[key]);
 
   socket.on(mapPlaceEvents.read, (reply: (snapshot: MapPlaceSnapshot) => void) => {
     if (!authenticated || typeof reply !== 'function') return;
