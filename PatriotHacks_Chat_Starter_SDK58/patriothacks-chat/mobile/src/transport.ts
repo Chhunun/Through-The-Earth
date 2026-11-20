@@ -1,5 +1,6 @@
 import { io } from 'socket.io-client';
 import { events, isEnvelope, incidentEvent, levelPresenceEvent, levelTemperatureEvent, type LevelTemperatures, severeReportsEvent, type LevelPresence, type SevereReports, type IncidentSnapshot, profileEvents, reportEvents, type ChatProfile, type ChatProfiles, roomEvents, type LevelReport, type LevelReportResult, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
+import { warningEvents, type HazardKind, type WarningRequest, type WarningSnapshot } from '@patriot/protocol';
 import { proveIdentity } from './crypto';
 
 export function connectRelay(
@@ -12,6 +13,7 @@ export function connectRelay(
   onPresence: (counts: LevelPresence) => void,
   onSevereReports: (reports: SevereReports) => void,
   onTemperatures: (temperatures: LevelTemperatures) => void,
+  onWarnings: (warnings: WarningSnapshot) => void,
   onStatus: (online: boolean, error?: string) => void,
 ) {
   const socket = io(url, { auth: { publicKey: key }, autoConnect: false });
@@ -58,6 +60,9 @@ export function connectRelay(
   socket.on(levelPresenceEvent, onPresence);
   socket.on(severeReportsEvent, onSevereReports);
   socket.on(levelTemperatureEvent, onTemperatures);
+  socket.on(warningEvents.snapshot, (warnings: unknown) => {
+    if (Array.isArray(warnings)) onWarnings(warnings);
+  });
   socket.connect();
 
   return {
@@ -90,6 +95,16 @@ export function connectRelay(
     async send(message: Envelope) {
       if (!authenticated || !socket.connected) throw new Error('Relay is offline');
       const ack: Ack = await socket.timeout(5000).emitWithAck(events.send, message);
+      if (!ack.ok) throw new Error(ack.error);
+    },
+    async raiseWarning(request: WarningRequest) {
+      if (!authenticated || !socket.connected) throw new Error('Relay is offline');
+      const ack: Ack = await socket.timeout(5000).emitWithAck(warningEvents.raise, request);
+      if (!ack.ok) throw new Error(ack.error);
+    },
+    async clearWarning(level: Room, kind: HazardKind) {
+      if (!authenticated || !socket.connected) throw new Error('Relay is offline');
+      const ack: Ack = await socket.timeout(5000).emitWithAck(warningEvents.clear, level, kind);
       if (!ack.ok) throw new Error(ack.error);
     },
   };

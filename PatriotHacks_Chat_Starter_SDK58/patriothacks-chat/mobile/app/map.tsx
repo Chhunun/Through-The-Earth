@@ -10,6 +10,7 @@ import { loadPrivatePlaces, savePrivatePlace, removePrivatePlace, movePrivatePla
 import type { MapPlace, MapPlaceKind, MapPlaceSnapshot } from '@patriot/protocol';
 import { usePrivateMapLocation } from '../src/usePrivateMapLocation';
 import { useChat } from '../src/chat';
+import { RaiseWarningButton, RaiseWarningModal, WarningBanner, useWarningActions } from '../src/HazardWarnings';
 import { publicKey } from '../src/crypto';
 import MapPathLayer from '../src/MapPathLayer';
 import { mergeWalkPaths } from '../src/mergeWalkPaths';
@@ -34,6 +35,12 @@ export default function MapScreen() {
   const [selectedPathId, setSelectedPathId] = useState<string>();
   const [changingPath, setChangingPath] = useState(false);
   const canTest = useChat((state) => state.profiles[state.key]?.name === 'test');
+  // Hazard warnings go through the chat screen's relay session, which stays open underneath the map.
+  const warnings = useChat((state) => state.warnings);
+  const ownKey = useChat((state) => state.key);
+  const relayOnline = useChat((state) => state.online);
+  const warningActions = useWarningActions();
+  const [warningOpen, setWarningOpen] = useState(false);
   const mapView = useRef<ComponentRef<typeof View>>(null);
   const rootView = useRef<ComponentRef<typeof View>>(null);
   const [blockGhost, setBlockGhost] = useState<{ x: number; y: number }>();
@@ -410,6 +417,15 @@ export default function MapScreen() {
     <ScrollView scrollEnabled={!usingJoystick && !draggingPin} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && recording ? 170 : 16 }}>
       <Pressable onPress={() => router.back()} accessibilityRole="button"><Text className="font-mono font-semibold text-term-glow">‹ Social network</Text></Pressable>
       <Text accessibilityRole="header" className="font-mono uppercase tracking-widest text-xl font-bold text-term-glow">Level map</Text>
+      {/* Warning system. The form starts on the floor shown on the map. */}
+      <RaiseWarningButton disabled={draggingPin} onPress={() => setWarningOpen(true)} />
+      <RaiseWarningModal visible={warningOpen} online={relayOnline} defaultLevel={level}
+                         submit={warningActions.raise} close={() => setWarningOpen(false)} />
+      {/* The banner's own margin is reset for this padded layout. */}
+      {warnings.length ? <View className="-mx-3 -mt-2">
+        <WarningBanner warnings={warnings} ownKey={ownKey} online={relayOnline} homeLevel={ownLevel}
+                       busy={warningActions.busy} confirm={warningActions.confirm} clear={warningActions.clear} />
+      </View> : null}
       <View className="flex-row gap-2">{rooms.map((room) =>
         <Pressable key={room} disabled={recording || busy || !!draft || draggingPin} onPress={() => { setLevel(room); setPicked(undefined); setCamera(undefined); }}
           className={room === level ? 'rounded bg-term-active border border-term-text p-2' : 'rounded bg-term-field border border-term-line p-2'}>

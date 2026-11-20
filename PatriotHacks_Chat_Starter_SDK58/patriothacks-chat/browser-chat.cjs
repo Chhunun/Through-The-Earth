@@ -14,7 +14,7 @@ import { startSosChoice } from './shared/sosChoice.ts';
 import { sosTypes, sosLabels, sosText, sosEvent, isSosMessage } from './shared/sosTypes.ts';
 import { io } from 'socket.io-client';
 import nacl from 'tweetnacl';
-import { events, isEnvelope, isPublicKey, parseChatProfile, profileEvents, profileLabel, rooms, roomEvents, parseLevelReport, reportEvents, reportPie, reportQuestions, sosMessage, checkInMessages, checkInStatus, incidentEvent, incidentLabels, incidentWindowMinutes, localClock, dailyLogQuestions, dailyLogDay, dailyLogDayLabel, dailyLogNotesLimit, parseDailyLogEntry } from './shared/index.ts';
+import { events, isEnvelope, isPublicKey, parseChatProfile, profileEvents, profileLabel, rooms, roomEvents, parseLevelReport, reportEvents, reportPie, reportQuestions, sosMessage, checkInMessages, checkInStatus, incidentEvent, incidentLabels, incidentWindowMinutes, localClock, dailyLogQuestions, dailyLogDay, dailyLogDayLabel, dailyLogNotesLimit, parseDailyLogEntry, hazardKinds, hazardLabels, parseWarningRequest, warningActiveMinutes, warningEvents, warningNoteLimit } from './shared/index.ts';
 
 const field = (id) => document.getElementById(id);
 function refreshClock() {
@@ -363,6 +363,7 @@ field('sign-out').addEventListener('click', () => {
   field('draft').value = '';
   field('error').textContent = '';
   field('profile-details').open = false;
+  if (field('warning-dialog').open) field('warning-dialog').close();
   field('chat-sidebar').hidden = true;
   field('chat-workspace').hidden = true;
   document.body.classList.add('sign-in');
@@ -376,6 +377,7 @@ function updateProfileSummary() {
   if (selectedRoom) renderRoom();
   else renderDirect();
   if (reportOpen) renderReports();
+  renderWarnings();
 }
 
 field('profile-details').addEventListener('toggle', () => {
@@ -423,6 +425,117 @@ const roomMessages = new Map();
 const directMessages = [];
 let selectedRoom = '';
 let incidents = {};
+
+// Hazard warnings (air cutouts, bad water) for every level. Every signed-in resident sees all of them.
+let warnings = [];
+let warningBusy = false;
+let renderedWarnings = '';
+const warningTime = (at) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+function renderWarnings() {
+  const homeLevel = profiles[ownKey]?.level;
+  // The relay resends the snapshot every 30 s. Skip identical ones so screen readers don't repeat the banner.
+  const signature = JSON.stringify([warnings, authenticated, warningBusy, homeLevel]);
+  if (signature === renderedWarnings) return;
+  renderedWarnings = signature;
+  field('warning-banner').hidden = !warnings.length;
+  field('warning-offline').hidden = authenticated;
+  field('warning-items').replaceChildren(...warnings.map((warning) => {
+    const mine = warning.reporters.includes(ownKey);
+    const count = warning.reporters.length;
+    const label = hazardLabels[warning.kind] ?? warning.kind;
+    const item = document.createElement('article');
+    item.className = 'warning-item warning-' + warning.kind;
+    const title = document.createElement('strong');
+    title.textContent = warning.level + ' · ' + label + (warning.level === homeLevel ? ' · your level' : '');
+    const detail = document.createElement('div');
+    detail.textContent = count + (count === 1 ? ' resident' : ' residents') + (mine ? ', including you' : '') +
+      ' · latest ' + warningTime(warning.latestAt);
+    item.append(title, detail);
+    if (warning.note) {
+      const note = document.createElement('div');
+      note.className = 'warning-note';
+      note.textContent = '“' + warning.note + '”';
+      item.append(note);
+    }
+    // Confirm adds your report to someone else's warning; Clear mine withdraws only yours.
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.textContent = mine ? 'Clear mine' : 'Confirm';
+    action.setAttribute('aria-label', (mine ? 'Clear your ' : 'Confirm the ') + label + ' warning for ' + warning.level);
+    action.disabled = !authenticated || warningBusy;
+    action.addEventListener('click', () => { void updateWarning(warning, mine); });
+    item.append(action);
+    return item;
+  }));
+}
+
+async function updateWarning(warning, mine) {
+  if (!authenticated || warningBusy) return;
+  warningBusy = true;
+  field('warning-error').textContent = '';
+  renderWarnings();
+  try {
+    const ack = mine
+      ? await socket.timeout(5000).emitWithAck(warningEvents.clear, warning.level, warning.kind)
+      : await socket.timeout(5000).emitWithAck(warningEvents.raise, { level: warning.level, kind: warning.kind, note: '' });
+    if (!ack.ok) throw new Error(ack.error);
+  } catch (error) {
+    field('warning-error').textContent = 'Warning not updated: ' + error.message;
+  } finally {
+    warningBusy = false;
+    renderWarnings();
+  }
+}
+
+// The Raise warning dialog: hazard, level (defaults to the one being viewed) and an optional location note.
+field('warning-help').textContent = 'Every signed-in resident sees it, labelled with the level. It lasts ' +
+  warningActiveMinutes + ' minutes unless you clear it or raise it again.';
+for (const kind of hazardKinds) {
+  const option = document.createElement('label');
+  option.className = 'warning-kind';
+  const input = document.createElement('input');
+  input.type = 'radio';
+  input.name = 'warning-kind';
+  input.value = kind;
+  input.required = true;
+  option.append(input, hazardLabels[kind]);
+  field('warning-kinds').append(option);
+}
+for (const room of rooms) field('warning-level').add(new Option(room, room));
+field('warning-note').maxLength = warningNoteLimit;
+
+field('raise-warning').addEventListener('click', () => {
+  field('warning-form').reset();
+  field('warning-level').value = selectedRoom || profiles[ownKey]?.level || rooms[0];
+  field('warning-status').textContent = authenticated ? '' : 'Relay offline · Warnings need a connection to reach others.';
+  field('warning-dialog').showModal();
+});
+field('warning-cancel').addEventListener('click', () => field('warning-dialog').close());
+field('warning-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(field('warning-form'));
+  const request = parseWarningRequest({ level: form.get('warning-level'), kind: form.get('warning-kind'), note: form.get('warning-note') });
+  if (!request) {
+    field('warning-status').textContent = 'Choose what’s happening, and keep the note to ' + warningNoteLimit + ' characters.';
+    return;
+  }
+  if (!authenticated) {
+    field('warning-status').textContent = 'Relay offline · Warnings need a connection to reach others.';
+    return;
+  }
+  field('warning-send').disabled = true;
+  field('warning-status').textContent = 'Sending…';
+  try {
+    const ack = await socket.timeout(5000).emitWithAck(warningEvents.raise, request);
+    if (!ack.ok) throw new Error(ack.error);
+    field('warning-dialog').close();
+  } catch (error) {
+    field('warning-status').textContent = error.message;
+  } finally {
+    field('warning-send').disabled = false;
+  }
+});
 
 function renderIncident() {
   const banner = field('incident-banner');
@@ -765,6 +878,7 @@ if (autoSignIn && profiles[ownKey]) enterChat(profiles[ownKey]);
 function status(online, message) {
   authenticated = online;
   renderIncident();
+  renderWarnings();
   field('status').textContent = message;
   updateChatActions();
   field('save-profile').disabled = !online || savingProfile;
@@ -775,6 +889,10 @@ function status(online, message) {
 socket.on(incidentEvent, (snapshot) => {
   incidents = snapshot;
   renderIncident();
+});
+socket.on(warningEvents.snapshot, (snapshot) => {
+  warnings = Array.isArray(snapshot) ? snapshot : [];
+  renderWarnings();
 });
 
 socket.on(profileEvents.snapshot, (snapshot) => {
@@ -1063,11 +1181,34 @@ li::marker{color:var(--muted)}
 #log-history{display:grid;gap:8px;margin:12px 0}
 #log-history article{display:grid;gap:4px}
 .log-notes{color:var(--dim);white-space:pre-wrap;overflow-wrap:anywhere}
+/* Hazard warnings use the amber alert colors (air cutouts in rose), never the green theme. */
+#raise-warning{display:block;margin:16px 8px 0;background:var(--warn-bg);color:var(--warn);border-color:var(--warn-line);text-shadow:none}
+#raise-warning:hover:not(:disabled),#warning-send:hover:not(:disabled),.warning-item button:hover:not(:disabled){background:var(--warn-line);color:var(--bg);text-shadow:none}
+#warning-banner{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-line);border-radius:2px;padding:10px 12px;margin:0 0 16px;text-shadow:none}
+#warning-banner h3{color:var(--warn);margin:0 0 8px}
+#warning-banner p{color:var(--warn);font-size:.9rem;margin:0 0 6px}
+#warning-banner p:empty{display:none}
+#warning-items{display:grid;gap:12px;max-height:40vh;overflow:auto}
+.warning-item{display:grid;gap:3px;justify-items:start}
+.warning-item strong{text-transform:uppercase;letter-spacing:.08em}
+.warning-air strong{color:#fecdd3}
+.warning-item div{font-size:.9rem}
+.warning-item button{margin-top:4px;padding:4px 10px;font-size:.85rem;background:transparent;color:var(--warn);border-color:var(--warn-line);text-shadow:none}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--warn-line);border-radius:2px;padding:20px;width:min(480px,calc(100vw - 32px))}
+dialog::backdrop{background:rgba(0,0,0,.75)}
+#warning-title{color:var(--warn);margin-top:0}
+#warning-kinds{display:flex;flex-wrap:wrap;gap:16px;border:1px solid var(--line);border-radius:2px;padding:8px 12px 12px;margin:16px 0 0}
+#warning-kinds legend{color:var(--dim);padding:0 4px}
+.warning-kind{display:inline-flex;align-items:center;gap:8px;margin:0;color:var(--text);cursor:pointer}
+.warning-kind input{width:auto;padding:0;accent-color:var(--warn-line)}
+.dialog-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+#warning-send{background:var(--warn-bg);color:var(--warn);border-color:var(--warn-line)}
 </style>
 <body class="sign-in">
 <aside id="chat-sidebar" hidden>
 <h1>Through The Earth</h1>
 <nav id="channels" aria-label="Channels"></nav>
+<button type="button" id="raise-warning">⚠ Raise warning</button>
 <button type="button" id="sign-out">Sign out</button>
 </aside>
 <main>
@@ -1101,6 +1242,12 @@ li::marker{color:var(--muted)}
 </form>
 </details>
 <div id="chat-workspace" hidden>
+<section id="warning-banner" aria-labelledby="warning-banner-title" aria-live="polite" hidden>
+<h3 id="warning-banner-title">⚠ Active warnings</h3>
+<p id="warning-offline" hidden>Relay offline · Showing last received warnings</p>
+<div id="warning-items"></div>
+<p id="warning-error" role="alert"></p>
+</section>
 <h2 id="channel-title">Direct chat</h2>
 <label for="public-key">Your public key</label>
 <div class="key"><input id="public-key" readonly><button id="copy" type="button">Copy</button></div>
@@ -1184,6 +1331,22 @@ li::marker{color:var(--muted)}
 <button type="button" id="sos" disabled>Send SOS</button>
 </form>
 </div>
+<dialog id="warning-dialog" aria-labelledby="warning-title">
+<form id="warning-form">
+<h2 id="warning-title">⚠ Raise a warning</h2>
+<p id="warning-help"></p>
+<fieldset id="warning-kinds"><legend>What’s happening?</legend></fieldset>
+<label for="warning-level">Which level?</label>
+<select id="warning-level" name="warning-level"></select>
+<label for="warning-note">Where? (optional)</label>
+<input id="warning-note" name="warning-note" placeholder="e.g. east pump room" autocomplete="off">
+<p id="warning-status" role="status"></p>
+<div class="dialog-actions">
+<button type="submit" id="warning-send">Send warning</button>
+<button type="button" id="warning-cancel">Cancel</button>
+</div>
+</form>
+</dialog>
 </main>
 <dialog id="sos-dialog" aria-labelledby="sos-title">
 <h2 id="sos-title">Send SOS</h2>

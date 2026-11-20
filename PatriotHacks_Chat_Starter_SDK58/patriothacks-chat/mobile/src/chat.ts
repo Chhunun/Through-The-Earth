@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { accountKeys, decryptMessage, encryptMessage, publicKey, removeAccount } from './crypto';
 import { forgetOwner, history, queuedCheckIns, queueCheckIn, removeCheckIn, save } from './storage';
 import { connectRelay } from './transport';
-import { checkInMessages, parseChatProfile, type CheckIn, type IncidentSnapshot, type LevelPresence, type LevelTemperatures, type SevereReports, type ChatProfile, type ChatProfiles, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
+import { checkInMessages, parseChatProfile, type CheckIn, type IncidentSnapshot, type LevelPresence, type LevelTemperatures, type SevereReports, type ChatProfile, type ChatProfiles, type Envelope, type HazardKind, type Room, type RoomMessage, type WarningRequest, type WarningSnapshot } from '@patriot/protocol';
 
 type Message = Envelope & { text: string };
 type ChatState = {
@@ -15,12 +15,13 @@ type ChatState = {
   presence?: LevelPresence;
   severeReports: Partial<SevereReports>;
   temperatures: Partial<LevelTemperatures>;
+  warnings: WarningSnapshot;
   relayError: string;
   messages: Message[];
   pendingCheckIns: Envelope[];
   roomMessages: Partial<Record<Room, RoomMessage[]>>;
 };
-const initialState: ChatState = { key: '', profiles: {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, temperatures: {}, relayError: '', messages: [], pendingCheckIns: [], roomMessages: {} };
+const initialState: ChatState = { key: '', profiles: {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, temperatures: {}, warnings: [], relayError: '', messages: [], pendingCheckIns: [], roomMessages: {} };
 export const useChat = create<ChatState>(() => initialState);
 
 async function display(envelope: Envelope) {
@@ -83,6 +84,20 @@ export async function removeSavedAccount(key: string) {
   await SecureStore.setItemAsync(cachedProfileSlot, JSON.stringify(rest)).catch(() => {});
 }
 
+// The chat screen owns the relay session, but warnings can be raised from other screens too (the map).
+// This points at the open session's relay, or is undefined when there is none.
+let liveRelay: ReturnType<typeof connectRelay> | undefined;
+
+export async function raiseWarning(request: WarningRequest) {
+  if (!liveRelay) throw new Error('Relay is offline');
+  await liveRelay.raiseWarning(request);
+}
+
+export async function clearWarning(level: Room, kind: HazardKind) {
+  if (!liveRelay) throw new Error('Relay is offline');
+  await liveRelay.clearWarning(level, kind);
+}
+
 // Clear the previous account's state before the screen remounts for a different account.
 export function resetChat() {
   useChat.setState(initialState);
@@ -100,7 +115,7 @@ export async function startChat(isActive: () => boolean) {
   }
   const [pendingCheckIns, cachedProfile] = await Promise.all([queuedCheckIns(key), cachedProfiles().then((all) => all[key])]);
   if (!isActive()) return;
-  useChat.setState({ key, messages, pendingCheckIns, profiles: cachedProfile ? { [key]: cachedProfile } : {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, temperatures: {}, relayError: '' });
+  useChat.setState({ key, messages, pendingCheckIns, profiles: cachedProfile ? { [key]: cachedProfile } : {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, temperatures: {}, warnings: [], relayError: '' });
   const url = process.env.EXPO_PUBLIC_RELAY_URL;
   if (!url) {
     useChat.setState({ relayError: 'Set EXPO_PUBLIC_RELAY_URL in mobile/.env' });
@@ -118,11 +133,13 @@ export async function startChat(isActive: () => boolean) {
     (presence) => useChat.setState({ presence }),
     (severeReports) => useChat.setState({ severeReports }),
     (temperatures) => useChat.setState({ temperatures }),
+    (warnings) => useChat.setState({ warnings }),
     (online, error) => {
       if (!online) useChat.setState({ presence: undefined });
       useChat.setState({ online, relayError: error ?? '' });
       if (online) void flushCheckIns();
     });
+  liveRelay = relay;
   let flushing = false;
 
   async function flushCheckIns() {
@@ -149,6 +166,8 @@ export async function startChat(isActive: () => boolean) {
   return {
     close() {
       clearInterval(retry);
+      // A newer session (after switching accounts) may already have replaced this one.
+      if (liveRelay === relay) liveRelay = undefined;
       relay.close();
     },
     async checkIn(to: string, kind: CheckIn) {
