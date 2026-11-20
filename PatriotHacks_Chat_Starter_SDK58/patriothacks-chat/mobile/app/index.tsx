@@ -346,8 +346,8 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
                              close={() => setEditingProfile(false)} />
           ) : null}
           <Pressable accessibilityRole="button" onPress={() => router.push('/map')}
-            className="self-start rounded-lg bg-sky-900 px-3 py-2">
-            <Text className="font-semibold text-white">Open map</Text>
+            className="self-start rounded-sm bg-term-active border border-term-text px-3 py-2">
+            <Text className="font-mono font-semibold text-term-text">Open map</Text>
           </Pressable>
           {/* Channel drawer. Change panel width and selected-row styling here. */}
           <Modal visible={channelsOpen} transparent animationType="fade"

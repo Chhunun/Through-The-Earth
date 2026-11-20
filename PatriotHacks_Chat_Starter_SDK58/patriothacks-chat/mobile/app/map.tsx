@@ -1,4 +1,5 @@
 import MapPathsPanel from '../src/MapPathsPanel';
+import term from '../src/terminal-colors.json';
 import { cacheSharedPath, loadRemovedPathIds, loadSharedPathIds } from '../src/mapStorage';
 import { blockPlacementPoint, type DropFrame } from '../src/blockPlacement';
 import { MapPlaceLayer, MapPlacesPanel } from '../src/MapPlaces';
@@ -12,7 +13,7 @@ import { mergeWalkPaths } from '../src/mergeWalkPaths';
 import MapJoystick from '../src/MapJoystick';
 import { mapDistance } from '../src/mapScale';
 import MapControls from '../src/MapControls';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentRef, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -28,8 +29,8 @@ export default function MapScreen() {
   const [selectedPathId, setSelectedPathId] = useState<string>();
   const [changingPath, setChangingPath] = useState(false);
   const canTest = useChat((state) => state.profiles[state.key]?.name === 'test');
-  const mapView = useRef<View>(null);
-  const rootView = useRef<View>(null);
+  const mapView = useRef<ComponentRef<typeof View>>(null);
+  const rootView = useRef<ComponentRef<typeof View>>(null);
   const [blockGhost, setBlockGhost] = useState<{ x: number; y: number }>();
   const rootOrigin = useRef({ x: 0, y: 0 });
   const dropFrame = useRef<DropFrame | undefined>(undefined);
@@ -370,42 +371,42 @@ export default function MapScreen() {
   }
 
   const recordWalkControl = <Pressable accessibilityRole="button" disabled={busy || draggingPin}
-    className="rounded bg-sky-800 p-3" onPress={() => { if (recording) stop(); else void start(); }}>
-    <Text className="text-white">{recording ? 'Stop recording' : 'Record walk'}</Text>
+    className="rounded bg-term-active border border-term-text p-3" onPress={() => { if (recording) stop(); else void start(); }}>
+    <Text className="font-mono text-term-text">{recording ? 'Stop recording' : 'Record walk'}</Text>
   </Pressable>;
 
-  return <SafeAreaView ref={rootView} collapsable={false} style={{ flex: 1, backgroundColor: '#020617' }}>
+  return <SafeAreaView ref={rootView} collapsable={false} style={{ flex: 1, backgroundColor: term.bg }}>
     <ScrollView scrollEnabled={!usingJoystick && !draggingPin} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && recording ? 170 : 16 }}>
-      <Pressable onPress={() => router.back()} accessibilityRole="button"><Text className="font-semibold text-sky-300">‹ Social network</Text></Pressable>
-      <Text className="text-xl font-bold text-white">Level map</Text>
+      <Pressable onPress={() => router.back()} accessibilityRole="button"><Text className="font-mono font-semibold text-term-glow">‹ Social network</Text></Pressable>
+      <Text accessibilityRole="header" className="font-mono uppercase tracking-widest text-xl font-bold text-term-glow">Level map</Text>
       <View className="flex-row gap-2">{rooms.map((room) =>
         <Pressable key={room} disabled={recording || busy || !!draft || draggingPin} onPress={() => { setLevel(room); setPicked(undefined); setCamera(undefined); }}
-          className={room === level ? 'rounded bg-sky-800 p-2' : 'rounded bg-zinc-800 p-2'}>
-          <Text className="text-white">{room.replace(' Levels', '').replace(' Level', '')}</Text>
+          className={room === level ? 'rounded bg-term-active border border-term-text p-2' : 'rounded bg-term-field border border-term-line p-2'}>
+          <Text className="font-mono text-term-text">{room.replace(' Levels', '').replace(' Level', '')}</Text>
         </Pressable>)}</View>
-      <Text className="text-xs text-slate-300">Choose your current floor. Overlapping recordings merge into the most supported route. Walls and room layouts are unknown.</Text>
+      <Text className="font-mono text-xs text-term-dim">Choose your current floor. Overlapping recordings merge into the most supported route. Walls and room layouts are unknown.</Text>
       <View ref={mapView} collapsable={false} onLayout={({ nativeEvent }) => {
         const { width, height } = nativeEvent.layout;
         setSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
-      }} style={{ height: 350, overflow: 'hidden', borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' }}>
+      }} style={{ height: 350, overflow: 'hidden', borderWidth: 1, borderColor: term.line, backgroundColor: term.panel }}>
         <MapPathLayer segments={merged} draft={draft?.level === level ? draft : undefined}
           center={center} width={size.width} height={size.height} scale={scale}
           highlight={!testing ? visible.find((path) => path.id === selectedPathId) : undefined} />
-        {position ? <View accessibilityLabel="Your estimated location, visible only to you" style={{ position: 'absolute', left: markerX - 7, top: markerY - 7, height: 14, width: 14, borderRadius: 7, backgroundColor: '#f8fafc', borderWidth: 3, borderColor: !testing && live.stale ? '#94a3b8' : '#2563eb' }} /> : null}
+        {position ? <View accessibilityLabel="Your estimated location, visible only to you" style={{ position: 'absolute', left: markerX - 7, top: markerY - 7, height: 14, width: 14, borderRadius: 7, backgroundColor: term.glow, borderWidth: 3, borderColor: !testing && live.stale ? term.muted : term.active }} /> : null}
         {position && heading !== undefined ? <View pointerEvents="none" style={{
           position: 'absolute', left: markerX - 14, top: markerY - 14,
           width: 28, height: 28, transform: [{ rotate: heading + 'deg' }],
         }}>
-          <Text style={{ position: 'absolute', top: -15, left: 5, color: '#60a5fa', fontSize: 20 }}>▲</Text>
+          <Text className="font-mono" style={{ position: 'absolute', top: -15, left: 5, color: term.glow, fontSize: 20 }}>▲</Text>
         </View> : null}
-        {!tracks.some((path) => path.points.length > 1) ? <Text className="px-12 pt-24 text-slate-400">No paths recorded on this level yet.</Text> : null}
+        {!tracks.some((path) => path.points.length > 1) ? <Text className="font-mono px-12 pt-24 text-term-muted">No paths recorded on this level yet.</Text> : null}
         {!testing ? <MapPlaceLayer places={places} center={center} originLatitude={originLatitude}
           scale={scale} width={size.width} height={size.height} picked={picked}
           pick={setPicked} inspect={inspectPlace} move={movePlace} online={online}
           interaction={(value) => { if (value && center) setCamera({ ...center }); setDraggingPin(value); }} /> : null}
         <MapControls width={size.width} scale={scale} zoom={setScale} heading={heading} />
       </View>
-      {camera ? <Pressable onPress={() => setCamera(undefined)}><Text className="text-sky-300">Follow my location</Text></Pressable> : null}
+      {camera ? <Pressable onPress={() => setCamera(undefined)}><Text className="font-mono text-term-glow">Follow my location</Text></Pressable> : null}
       {!testing ? <MapPlacesPanel level={level} target={picked ?? position} picked={!!picked}
         clearPicked={() => setPicked(undefined)} places={places} online={online} disabled={busy}
         create={createPlace} inspect={inspectPlace} focus={setCamera} walkControl={recordWalkControl}
@@ -419,31 +420,31 @@ export default function MapScreen() {
         level={level} ownLevel={ownLevel} online={online} pending={changingPath}
         select={(path) => { setSelectedPathId(path.id); setCamera(path.points[0]); }}
         remove={removeSharedWalk} share={shareSavedWalk} /> : null}
-      <Text className="text-xs text-slate-400">Grey: saved paths · Light grey: overlapping recordings · Blue: current walk · Nearby parallel routes may merge within about 6.5 ft.</Text>
-      <Text className="text-xs text-slate-400">Map north stays up · Compass turns with your heading · Distances in feet and inches.</Text>
-      <Text className="text-xs text-slate-300">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable'}</Text>
-      <Text className="text-xs text-slate-300">{position ? testing ? 'Simulated location' : (live.stale ? 'Last known location' : 'Your estimated location') + (accuracy != null ? ' · ±' + mapDistance(accuracy) : ' · Accuracy unknown') + ' · Private' : 'Waiting for location'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
-      {!testing && live.status ? <Text className="text-xs text-amber-200">{live.status}</Text> : null}
-      {!testing ? <Text className="text-xs text-slate-400">Marker follows you while this map is open. It is never shared. Choose your floor manually; GPS cannot identify indoor floors.</Text> : null}
-      {pendingShares > 0 ? <Text className="text-xs text-amber-200">{pendingShares} shared path(s) waiting to sync. Retries run while this map is open.</Text> : null}
+      <Text className="font-mono text-xs text-term-muted">Dim green: saved paths · Green: overlapping recordings · Bright: current walk · Amber: selected walk · Nearby parallel routes may merge within about 6.5 ft.</Text>
+      <Text className="font-mono text-xs text-term-muted">Map north stays up · Compass turns with your heading · Distances in feet and inches.</Text>
+      <Text className="font-mono text-xs text-term-dim">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable'}</Text>
+      <Text className="font-mono text-xs text-term-dim">{position ? testing ? 'Simulated location' : (live.stale ? 'Last known location' : 'Your estimated location') + (accuracy != null ? ' · ±' + mapDistance(accuracy) : ' · Accuracy unknown') + ' · Private' : 'Waiting for location'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
+      {!testing && live.status ? <Text className="font-mono text-xs text-amber-200">{live.status}</Text> : null}
+      {!testing ? <Text className="font-mono text-xs text-term-muted">Marker follows you while this map is open. It is never shared. Choose your floor manually; GPS cannot identify indoor floors.</Text> : null}
+      {pendingShares > 0 ? <Text className="font-mono text-xs text-amber-200">{pendingShares} shared path(s) waiting to sync. Retries run while this map is open.</Text> : null}
       {canTest ? <Pressable accessibilityRole="switch" accessibilityState={{ checked: testing, disabled: recording || busy || !!draft }}
-        disabled={recording || busy || !!draft || draggingPin} onPress={toggleTesting} className="self-start rounded bg-zinc-800 p-3">
-        <Text className="text-white">{testing ? 'Test joystick: on' : 'Test joystick: off'}</Text>
+        disabled={recording || busy || !!draft || draggingPin} onPress={toggleTesting} className="self-start rounded bg-term-field border border-term-line p-3">
+        <Text className="font-mono text-term-text">{testing ? 'Test joystick: on' : 'Test joystick: off'}</Text>
       </Pressable> : null}
-      {testing ? <Text className="text-xs text-amber-200">Simulation · Test paths stay in this session. Choose Record walk, then drag the joystick.</Text> : null}
+      {testing ? <Text className="font-mono text-xs text-amber-200">Simulation · Test paths stay in this session. Choose Record walk, then drag the joystick.</Text> : null}
       {testing ? <View className="flex-row flex-wrap gap-2">{recordWalkControl}</View> : null}
       {draft ? <View className="flex-row flex-wrap gap-2">
-        <Pressable disabled={busy} className="rounded bg-zinc-800 p-3" onPress={() => { void save(false); }}><Text className="text-white">{testing ? 'Keep test path' : 'Save locally'}</Text></Pressable>
-        {!testing ? <Pressable disabled={busy} className="rounded bg-sky-800 p-3" onPress={() => Alert.alert('Share this route?', 'Everyone connected to this relay can see its coordinates. The route may reveal places you visited.', [{ text: 'Cancel' }, { text: 'Share path', onPress: () => { void save(true); } }])}><Text className="text-white">Share path</Text></Pressable> : null}
-        <Pressable disabled={busy} className="rounded bg-zinc-800 p-3" onPress={() => { stop(); walk.current = undefined; setDraft(undefined); }}><Text className="text-white">Discard walk</Text></Pressable>
+        <Pressable disabled={busy} className="rounded bg-term-field border border-term-line p-3" onPress={() => { void save(false); }}><Text className="font-mono text-term-text">{testing ? 'Keep test path' : 'Save locally'}</Text></Pressable>
+        {!testing ? <Pressable disabled={busy} className="rounded bg-term-active border border-term-text p-3" onPress={() => Alert.alert('Share this route?', 'Everyone connected to this relay can see its coordinates. The route may reveal places you visited.', [{ text: 'Cancel' }, { text: 'Share path', onPress: () => { void save(true); } }])}><Text className="font-mono text-term-text">Share path</Text></Pressable> : null}
+        <Pressable disabled={busy} className="rounded bg-term-field border border-term-line p-3" onPress={() => { stop(); walk.current = undefined; setDraft(undefined); }}><Text className="font-mono text-term-text">Discard walk</Text></Pressable>
       </View> : null}
-      {message ? <Text className="text-sm text-slate-200">{message}</Text> : null}
-      <Text className="text-xs text-slate-400">Location updates and recording stop when this map leaves the foreground. A shared route contains coordinates, but no name or live location marker.</Text>
+      {message ? <Text className="font-mono text-sm text-term-text">{message}</Text> : null}
+      <Text className="font-mono text-xs text-term-muted">Location updates and recording stop when this map leaves the foreground. A shared route contains coordinates, but no name or live location marker.</Text>
     </ScrollView>
     {blockGhost ? <View pointerEvents="none" style={{ position: 'absolute', left: blockGhost.x - 20,
-      top: blockGhost.y - 36, width: 40, height: 36, borderRadius: 12, backgroundColor: '#7f1d1d',
+      top: blockGhost.y - 36, width: 40, height: 36, borderRadius: 4, backgroundColor: '#7f1d1d',
       borderWidth: 2, borderColor: '#fb7185', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 24 }}>✕</Text>
+      <Text className="font-mono" style={{ color: '#ffe4e6', fontWeight: 'bold', fontSize: 24 }}>✕</Text>
     </View> : null}
     {canTest && testing && recording ? <MapJoystick move={moveTest} interaction={setUsingJoystick} /> : null}
   </SafeAreaView>;

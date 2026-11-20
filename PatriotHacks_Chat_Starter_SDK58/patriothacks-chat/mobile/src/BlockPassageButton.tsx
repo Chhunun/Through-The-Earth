@@ -72,7 +72,7 @@ export default function BlockPassageButton(props: Props) {
       working.current = true;
       void current.current.finish().catch((error) => Alert.alert('Passage not marked', String(error))).finally(cancel);
     }}
-    style={{ backgroundColor: pressed ? '#7f1d1d' : '#1e293b', padding: 12, borderRadius: 4, opacity: props.disabled ? 0.5 : 1 }}>
-    <Text style={{ color: '#fb7185' }}>{pressed ? 'Drop onto map' : 'Block passage'}</Text>
+    style={{ backgroundColor: pressed ? '#881337' : '#4c0519', borderWidth: 1, borderColor: '#f43f5e', padding: 12, borderRadius: 2, opacity: props.disabled ? 0.5 : 1 }}>
+    <Text className="font-mono" style={{ color: '#ffe4e6' }}>{pressed ? 'Drop onto map' : 'Block passage'}</Text>
   </View>;
 }

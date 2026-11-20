@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import term from './terminal-colors.json';
 import { Alert, Animated, AppState, PanResponder, Text } from 'react-native';
 import type { MapPlace, MapPoint } from '@patriot/protocol';
 import type { ScreenPlace } from './mapMarkerLayout';
@@ -86,10 +87,10 @@ export default function DraggableMapPin(props: Props) {
     accessibilityActions={[{ name: 'activate', label: 'View marker' }]}
     onAccessibilityAction={() => props.inspect(props.item.place)}
     style={{ position: 'absolute', left: (lifted ? gesture.current.item.x : props.item.x) - 18, top: (lifted ? gesture.current.item.y : props.item.y) - 34,
-      width: 36, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-      backgroundColor: lifted ? '#334155' : '#020617', borderWidth: lifted ? 3 : 2,
+      width: 36, height: 34, borderRadius: 4, alignItems: 'center', justifyContent: 'center',
+      backgroundColor: lifted ? term.active : term.bg, borderWidth: lifted ? 3 : 2,
       borderColor: props.color, zIndex: lifted ? 100 : 10,
       transform: offset.getTranslateTransform() }}>
-    <Text style={{ color: props.color, fontWeight: 'bold', fontSize: 20 }}>{props.symbol}</Text>
+    <Text className="font-mono" style={{ color: props.color, fontWeight: 'bold', fontSize: 20 }}>{props.symbol}</Text>
   </Animated.View>;
 }

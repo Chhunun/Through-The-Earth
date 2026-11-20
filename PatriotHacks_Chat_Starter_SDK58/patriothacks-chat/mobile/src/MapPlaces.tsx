@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import term from './terminal-colors.json';
 import BlockPassageButton from './BlockPassageButton';
 import DraggableMapPin from './DraggableMapPin';
 import { pointOnMap, stackMapPlaces } from './mapMarkerLayout';
@@ -8,7 +9,7 @@ import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'reac
 import type { MapPlace, MapPlaceKind, MapPoint, Room } from '@patriot/protocol';
 
 export const placeSymbol = (kind: MapPlaceKind) => kind === 'personal' ? '●' : kind === 'blackout' ? '⚡' : '✕';
-const placeColor = (kind: MapPlaceKind) => kind === 'personal' ? '#a78bfa' : kind === 'blackout' ? '#facc15' : '#fb7185';
+const placeColor = (kind: MapPlaceKind) => kind === 'personal' ? term.text : kind === 'blackout' ? '#facc15' : '#fb7185';
 
 export function MapPlaceLayer({ places, center, originLatitude, scale, width, height, picked, pick, inspect, move, interaction, online }: {
   places: MapPlace[]; center?: MapPoint; originLatitude: number; scale: number;
@@ -46,29 +47,29 @@ export function MapPlaceLayer({ places, center, originLatitude, scale, width, he
         accessibilityLabel={group.length + ' overlapping markers. Open stack.'}
         onPress={() => setStackIds(group.map((p) => p.place.id))}
         style={{ position: 'absolute', left: item.x - 20, top: item.y - 38, width: 44, height: 42, zIndex: 5 }}>
-        <View pointerEvents="none" style={{ position: 'absolute', left: 6, top: 0, width: 36, height: 34, borderRadius: 10, backgroundColor: '#475569', borderWidth: 1, borderColor: '#cbd5e1' }} />
-        <View pointerEvents="none" style={{ position: 'absolute', left: 3, top: 3, width: 36, height: 34, borderRadius: 10, backgroundColor: '#334155', borderWidth: 1, borderColor: '#cbd5e1' }} />
-        <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 6, width: 36, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', borderWidth: 2, borderColor: '#e2e8f0' }}>
-          <Text style={{ color: '#fff', fontWeight: 'bold' }}>{group.length}</Text>
+        <View pointerEvents="none" style={{ position: 'absolute', left: 6, top: 0, width: 36, height: 34, borderRadius: 4, backgroundColor: term.field, borderWidth: 1, borderColor: term.line }} />
+        <View pointerEvents="none" style={{ position: 'absolute', left: 3, top: 3, width: 36, height: 34, borderRadius: 4, backgroundColor: term.active, borderWidth: 1, borderColor: term.line }} />
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 6, width: 36, height: 34, borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: term.bg, borderWidth: 2, borderColor: term.text }}>
+          <Text className="font-mono" style={{ color: term.text, fontWeight: 'bold' }}>{group.length}</Text>
         </View>
       </Pressable>;
     })}
-    {target ? <Text pointerEvents="none" style={{ position: 'absolute', left: target.x - 10, top: target.y - 15, color: '#fb923c', fontSize: 24 }}>＋</Text> : null}
+    {target ? <Text className="font-mono" pointerEvents="none" style={{ position: 'absolute', left: target.x - 10, top: target.y - 15, color: '#fb923c', fontSize: 24 }}>＋</Text> : null}
     <Modal visible={stack.length > 0} transparent animationType="fade" onRequestClose={() => setStackIds([])}>
-      <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#000a' }}>
-        <View style={{ backgroundColor: '#0f172a', padding: 20, borderRadius: 16, gap: 14 }}>
-          <Text className="text-lg font-bold text-white">Stacked locations · {stack.length}</Text>
+      <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#000c' }}>
+        <View style={{ backgroundColor: term.panel, borderWidth: 1, borderColor: term.line, padding: 20, borderRadius: 4, gap: 14 }}>
+          <Text className="font-mono text-lg font-bold text-term-text">Stacked locations · {stack.length}</Text>
           <ScrollView style={{ maxHeight: 350 }}>{stack.map((place) => <View key={place.id} style={{ gap: 8, marginBottom: 16 }}>
-            <Text style={{ color: placeColor(place.kind) }}>{placeSymbol(place.kind)} {place.label}</Text>
+            <Text className="font-mono" style={{ color: placeColor(place.kind) }}>{placeSymbol(place.kind)} {place.label}</Text>
             <View className="flex-row gap-3">
-              <Pressable onPress={() => { setStackIds([]); inspect(place); }} className="rounded bg-slate-800 p-3"><Text className="text-white">Details</Text></Pressable>
+              <Pressable onPress={() => { setStackIds([]); inspect(place); }} className="rounded bg-term-field border border-term-line p-3"><Text className="font-mono text-term-text">Details</Text></Pressable>
               <Pressable disabled={place.kind !== 'personal' && !online} onPress={() => {
                 setSelectedId(place.id); setStackIds([]);
-              }} className="rounded bg-sky-800 p-3"><Text className="text-white">Select to drag</Text></Pressable>
+              }} className="rounded bg-term-active border border-term-text p-3"><Text className="font-mono text-term-text">Select to drag</Text></Pressable>
             </View>
           </View>)}</ScrollView>
-          <Text className="text-xs text-slate-300">Select one marker, then hold it until it highlights and drag it. Shared markers require a connection.</Text>
-          <Pressable onPress={() => setStackIds([])}><Text className="text-sky-300">Close</Text></Pressable>
+          <Text className="font-mono text-xs text-term-dim">Select one marker, then hold it until it highlights and drag it. Shared markers require a connection.</Text>
+          <Pressable onPress={() => setStackIds([])}><Text className="font-mono text-term-glow">Close</Text></Pressable>
         </View>
       </View>
     </Modal>
@@ -109,46 +110,46 @@ export function MapPlacesPanel({ level, target, picked, clearPicked, places, onl
     finally { setSaving(false); }
   }
   return <View style={{ gap: 10 }}>
-    <Text className="font-semibold text-white">Places · {level}</Text>
-    <Text className="text-xs text-slate-300">{picked ? 'Using the orange target. ' : 'Using your location. '}Hold on the map to choose another spot.</Text>
-    {picked ? <Pressable onPress={clearPicked}><Text className="text-sky-300">Use my location instead</Text></Pressable> : null}
+    <Text className="font-mono font-semibold text-term-text">Places · {level}</Text>
+    <Text className="font-mono text-xs text-term-dim">{picked ? 'Using the orange target. ' : 'Using your location. '}Hold on the map to choose another spot.</Text>
+    {picked ? <Pressable onPress={clearPicked}><Text className="font-mono text-term-glow">Use my location instead</Text></Pressable> : null}
     <View className="flex-row flex-wrap gap-2">
       {walkControl}
       {(['personal', 'blackout'] as const).map((value) => <Pressable key={value}
-        disabled={disabled || saving} onPress={() => open(value)} className="rounded bg-slate-800 p-3">
-        <Text style={{ color: placeColor(value) }}>{value === 'personal' ? 'Save pin' : 'Report blackout'}</Text>
+        disabled={disabled || saving} onPress={() => open(value)} className="rounded bg-term-field border border-term-line p-3">
+        <Text className="font-mono" style={{ color: placeColor(value) }}>{value === 'personal' ? 'Save pin' : 'Report blackout'}</Text>
       </Pressable>)}
       <BlockPassageButton disabled={disabled || saving || !online} {...blockPlacement} />
     </View>
-    <Text className="text-xs text-slate-300">Tap Block passage to publish at your current location, or drag it onto the map. Shared blocks are visible to everyone.</Text>
-    <Text className="text-xs text-slate-400">Purple: your saved pins · Yellow: reported blackout · Red: blocked passage. Tap a stack to choose a marker. Hold a marker until it highlights, then drag to move it. Tap for details or removal.</Text>
-    {!online ? <Text className="text-xs text-amber-200">Shared markers are a cached snapshot and may be outdated. Reconnect to update or remove them.</Text> : null}
+    <Text className="font-mono text-xs text-term-dim">Tap Block passage to publish at your current location, or drag it onto the map. Shared blocks are visible to everyone.</Text>
+    <Text className="font-mono text-xs text-term-muted">Purple: your saved pins · Yellow: reported blackout · Red: blocked passage. Tap a stack to choose a marker. Hold a marker until it highlights, then drag to move it. Tap for details or removal.</Text>
+    {!online ? <Text className="font-mono text-xs text-amber-200">Shared markers are a cached snapshot and may be outdated. Reconnect to update or remove them.</Text> : null}
     <ScrollView nestedScrollEnabled style={{ maxHeight: 180 }}>
       {places.map((place) => <View key={place.id} className="mb-2 flex-row items-center gap-3">
         <Pressable style={{ flex: 1 }} onPress={() => { focus(place.point); inspect(place); }}>
-          <Text style={{ color: placeColor(place.kind) }}>{placeSymbol(place.kind)} {place.label}</Text>
-          <Text className="text-xs text-slate-400">{place.kind === 'personal' ? 'Private' : 'Resident report'} · {new Date(place.createdAt).toLocaleString()}</Text>
+          <Text className="font-mono" style={{ color: placeColor(place.kind) }}>{placeSymbol(place.kind)} {place.label}</Text>
+          <Text className="font-mono text-xs text-term-muted">{place.kind === 'personal' ? 'Private' : 'Resident report'} · {new Date(place.createdAt).toLocaleString()}</Text>
         </Pressable>
       </View>)}
-      {!places.length ? <Text className="text-xs text-slate-400">No saved places or reports on this level yet.</Text> : null}
+      {!places.length ? <Text className="font-mono text-xs text-term-muted">No saved places or reports on this level yet.</Text> : null}
     </ScrollView>
     <Modal visible={!!kind} transparent animationType="fade" onRequestClose={() => { if (!saving) setKind(undefined); }}>
-      <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#000a' }}>
-        <View style={{ backgroundColor: '#0f172a', padding: 20, borderRadius: 16, gap: 14 }}>
-          <Text className="text-lg font-bold text-white">{kind === 'personal' ? 'Save private place' : kind === 'block' ? 'Report blocked passage' : 'Report blackout'}</Text>
-          <Text className="text-slate-300">{level}</Text>
+      <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#000c' }}>
+        <View style={{ backgroundColor: term.panel, borderWidth: 1, borderColor: term.line, padding: 20, borderRadius: 4, gap: 14 }}>
+          <Text className="font-mono text-lg font-bold text-term-text">{kind === 'personal' ? 'Save private place' : kind === 'block' ? 'Report blocked passage' : 'Report blackout'}</Text>
+          <Text className="font-mono text-term-dim">{level}</Text>
           <TextInput accessibilityLabel="Location name" value={label} onChangeText={setLabel} maxLength={80}
-            placeholder="Location name" placeholderTextColor="#94a3b8" className="rounded bg-slate-800 p-3 text-white" />
+            placeholder="Location name" placeholderTextColor={term.muted} className="font-mono rounded bg-term-field border border-term-line p-3 text-term-text" />
           {kind === 'blackout' ? <View style={{ gap: 8 }}>{(['Some areas dark', 'Whole level dark'] as const).map((choice) =>
-            <Pressable key={choice} onPress={() => setBlackout(choice)} className="rounded bg-slate-800 p-3">
-              <Text className="text-white">{blackout === choice ? '● ' : '○ '}{choice}</Text>
+            <Pressable key={choice} onPress={() => setBlackout(choice)} className="rounded bg-term-field border border-term-line p-3">
+              <Text className="font-mono text-term-text">{blackout === choice ? '● ' : '○ '}{choice}</Text>
             </Pressable>)}</View> : null}
-          <Text className="text-sm text-slate-300">{kind === 'personal' ? 'Saved only on this device for your account.' : 'This sends the selected coordinates to everyone on this relay. Anyone can remove the marker.'}</Text>
-          {kind === 'blackout' ? <Text className="text-xs text-slate-400">Also updates your lighting-blackout answer in Status for this level. Removing this marker does not change that answer.</Text> : null}
-          {error ? <Text className="text-rose-300">{error}</Text> : null}
+          <Text className="font-mono text-sm text-term-dim">{kind === 'personal' ? 'Saved only on this device for your account.' : 'This sends the selected coordinates to everyone on this relay. Anyone can remove the marker.'}</Text>
+          {kind === 'blackout' ? <Text className="font-mono text-xs text-term-muted">Also updates your lighting-blackout answer in Status for this level. Removing this marker does not change that answer.</Text> : null}
+          {error ? <Text className="font-mono text-rose-300">{error}</Text> : null}
           <View className="flex-row gap-3">
-            <Pressable disabled={saving} onPress={() => setKind(undefined)} className="rounded bg-slate-800 p-3"><Text className="text-white">Cancel</Text></Pressable>
-            <Pressable disabled={saving} onPress={() => { void save(); }} className="rounded bg-sky-800 p-3"><Text className="text-white">{saving ? 'Saving…' : kind === 'personal' ? 'Save pin' : 'Publish report'}</Text></Pressable>
+            <Pressable disabled={saving} onPress={() => setKind(undefined)} className="rounded bg-term-field border border-term-line p-3"><Text className="font-mono text-term-text">Cancel</Text></Pressable>
+            <Pressable disabled={saving} onPress={() => { void save(); }} className="rounded bg-term-active border border-term-text p-3"><Text className="font-mono text-term-text">{saving ? 'Saving…' : kind === 'personal' ? 'Save pin' : 'Publish report'}</Text></Pressable>
           </View>
         </View>
       </View>
