@@ -3,11 +3,13 @@ import { mapPlaceEvents, isMapPlace, isMapPoint, type MapPlaceSnapshot } from '@
 import { readMap, storeMapPath, readMapPathState, removeMapPath, readMapPlaces, storeMapPlace, removeMapPlace, moveMapPlace } from './mapStore.js';
 import { profiles, storeProfile } from './profiles.js';
 import { validateReport, saveReport, readReports, incidentSnapshot, severeReports, levelTemperatures } from './reports.js';
+import { clearWarning, raiseWarning, warningSnapshot } from './warnings.js';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { Server } from 'socket.io';
 import nacl from 'tweetnacl';
+import { isHazardKind, parseWarningRequest, warningEvents } from '@patriot/protocol';
 import { events, isEnvelope, isPublicKey, isRoom, incidentEvent, levelPresenceEvent, levelTemperatureEvent, severeReportsEvent, parseChatProfile, type LevelPresence, mapEvents, isWalkPath, type WalkPath, profileEvents, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
 import { registerSos } from './sos.js';
@@ -77,8 +79,37 @@ io.on('connection', (socket) => {
     socket.emit(incidentEvent, incidentSnapshot());
     socket.emit(severeReportsEvent, severeReports());
     socket.emit(levelTemperatureEvent, levelTemperatures());
+    socket.emit(warningEvents.snapshot, warningSnapshot());
     publishPresence();
     for (const message of pending.get(key)?.values() ?? []) socket.emit(events.receive, message);
+  });
+
+  // Raising again renews your warning (and replaces your note); confirming someone else's is the same call.
+  socket.on(warningEvents.raise, (input: unknown, reply: (ack: Ack) => void) => {
+    if (typeof reply !== 'function') return;
+    const request = parseWarningRequest(input);
+    if (!authenticated || !request) {
+      reply({ ok: false, error: 'Invalid warning or session.' });
+      return;
+    }
+    if (!raiseWarning(key, request)) {
+      reply({ ok: false, error: 'This warning has reached its reporter limit.' });
+      return;
+    }
+    publishWarnings();
+    reply({ ok: true });
+  });
+
+  // Clearing only withdraws your own report. The warning stays while anyone else's is active.
+  socket.on(warningEvents.clear, (level: unknown, kind: unknown, reply: (ack: Ack) => void) => {
+    if (typeof reply !== 'function') return;
+    if (!authenticated || !isRoom(level) || !isHazardKind(kind)) {
+      reply({ ok: false, error: 'Invalid warning or session.' });
+      return;
+    }
+    clearWarning(key, level, kind);
+    publishWarnings();
+    reply({ ok: true });
   });
 
   socket.on(mapPlaceEvents.read, (reply: (snapshot: MapPlaceSnapshot) => void) => {
@@ -277,7 +308,15 @@ function publishIncidents() {
   io.to('room-readers').emit(severeReportsEvent, severeReports());
 }
 
-const incidentTimer = setInterval(publishIncidents, 30_000);
+function publishWarnings() {
+  io.to('room-readers').emit(warningEvents.snapshot, warningSnapshot());
+}
+
+// The periodic snapshot is also what removes expired warnings from everyone's screen.
+const incidentTimer = setInterval(() => {
+  publishIncidents();
+  publishWarnings();
+}, 30_000);
 server.on('close', () => clearInterval(incidentTimer));
 
 server.listen(Number(process.env.PORT ?? 3000), '0.0.0.0', () => {

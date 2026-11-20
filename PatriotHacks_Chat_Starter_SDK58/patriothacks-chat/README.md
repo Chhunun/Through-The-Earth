@@ -11,6 +11,7 @@ A community communication and early-warning app for the people of the Hollow (Pa
 - **Level condition reports:** residents answer quick questions (air, power, lighting, supplies, illness, heat, lung symptoms) and can enter a measured temperature. Results are shown as charts per level.
 - **Warnings:** when 2 or more reports within 60 minutes describe power or airflow problems, the level gets an incident announcement. Answers at the most severe level are posted as severe warnings to that level's channel.
 - **Temperature bar:** the average reported temperature per level.
+- **Hazard warnings:** the "⚠ Raise warning" button (next to Open map and on the map screen on mobile, in the sidebar in the browser) alerts every signed-in resident to an air cutout or bad water on a chosen level, with an optional note on where. Every screen shows an "Active warnings" banner with the level, how many residents reported it and when. Others can **Confirm** a warning, and each resident can **Clear mine**. A resident's report expires after 60 minutes unless they raise it again. Event names, labels and the validator live in `shared/index.ts`; the relay side is `relay/warnings.ts`.
 - **Daily log:** a third tab next to Chat and Status where residents record their sleep, mood, body health and meals for the day, with optional notes, and see past days. It is private: entries are stored on the device for the signed-in account and never sent to the relay. The questions are `dailyLogQuestions` in `shared/index.ts`.
 
 ## Look and feel
@@ -75,7 +76,7 @@ Open http://localhost:4173. Each browser profile or private window gets its own 
 - On first launch the app generates a NaCl box keypair and stores the private key in SecureStore. The relay issues an encrypted challenge before allowing a socket to send or read queued messages for the public key.
 - The sender encrypts the text and binds the message ID, participants, and timestamp inside the authenticated payload. The relay queues the encrypted envelope and acknowledges acceptance. This acknowledgement means the relay accepted the envelope.
 - The recipient decrypts and verifies the envelope, commits it to SQLite, then acknowledges receipt so the relay can remove it. SQLite stores envelopes only. The UI decrypts them into memory at launch.
-- The relay holds pending messages, room history and level reports in memory, so a relay restart clears them. Only profiles persist. A send with an interrupted or timed-out acknowledgement has uncertain delivery. Persistent outgoing retries, delivery receipts, QR scanning, push, and location are future work. Public keys are pseudonyms. The relay can see routing metadata and timing. The demo uses long-lived keys and has no forward secrecy.
+- The relay holds pending messages, room history, level reports and hazard warnings in memory, so a relay restart clears them. Only profiles persist. A send with an interrupted or timed-out acknowledgement has uncertain delivery. Persistent outgoing retries, delivery receipts, QR scanning, push, and location are future work. Public keys are pseudonyms. The relay can see routing metadata and timing. The demo uses long-lived keys and has no forward secrecy.
 
 ## Validation
 
