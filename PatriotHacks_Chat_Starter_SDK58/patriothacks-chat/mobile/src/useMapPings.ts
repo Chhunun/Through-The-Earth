@@ -1,3 +1,4 @@
+import { createLivePingSharing, type LivePingSample } from './livePingSharing';
 import { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { io } from 'socket.io-client';
@@ -5,12 +6,15 @@ import { events, type Ack, type Challenge, type Room, type MapPoint } from '@pat
 import { mapPingEvents, isPingSnapshot, type MapPing, type PingSnapshot } from '../../shared/mapPings';
 import { proveIdentity, publicKey } from './crypto';
 
-export function useMapPings(level: Room | undefined, expectedKey: string) {
+export function useMapPings(level: Room | undefined, expectedKey: string, source?: () => LivePingSample | undefined) {
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => setForeground(state === 'active'));
     return () => subscription.remove();
   }, []);
+  const sourceRef = useRef(source); sourceRef.current = source;
+  const sharingRef = useRef<ReturnType<typeof createLivePingSharing> | undefined>(undefined);
+  const [sharing, setSharing] = useState(false);
   const [pings, setPings] = useState<MapPing[]>([]);
   const [online, setOnline] = useState(false);
   const [error, setError] = useState('');
@@ -21,7 +25,20 @@ export function useMapPings(level: Room | undefined, expectedKey: string) {
     let active = true;
     let socket: ReturnType<typeof io> | undefined;
     let revision = -1;
+    const sharingController = createLivePingSharing({
+      sample: () => sourceRef.current?.(),
+      state: (value) => { if (active) setSharing(value); },
+      error: (message) => { if (active) setError(message); },
+      send: async (event, payload) => {
+        if (!ready.current || !socket?.connected) throw new Error('Ping relay is offline.');
+        const body = event === mapPingEvents.send ? { ...(payload as object), level } : payload;
+        const ack: Ack = await socket.timeout(5000).emitWithAck(event, body);
+        if (!ack.ok) throw new Error(ack.error);
+      },
+    });
+    sharingRef.current = sharingController;
     ready.current = false;
+    setSharing(false);
     setOnline(false); setPings([]); setError('');
     const tick = setInterval(() => {
       now.current = Date.now();
@@ -40,7 +57,7 @@ export function useMapPings(level: Room | undefined, expectedKey: string) {
       socket = io(url, { auth: { publicKey: expectedKey }, autoConnect: false });
       socketRef.current = socket;
       socket.on(mapPingEvents.snapshot, receive);
-      socket.on('disconnect', () => { ready.current = false; if (active) { setOnline(false); setPings([]); } });
+      socket.on('disconnect', () => { sharingController.cancel(); ready.current = false; if (active) { setOnline(false); setPings([]); } });
       socket.on('connect_error', (cause) => { if (active) { setError(cause.message); setOnline(false); } });
       socket.on(events.challenge, async (challenge: Challenge) => {
         const connectionId = socket?.id;
@@ -63,22 +80,21 @@ export function useMapPings(level: Room | undefined, expectedKey: string) {
     }
     void connect().catch((cause) => { if (active) setError(String(cause)); });
     return () => {
+      sharingController.cancel();
       active = false; ready.current = false; clearInterval(tick);
+      if (sharingRef.current === sharingController) sharingRef.current = undefined;
       socket?.removeAllListeners(); socket?.disconnect();
       if (socketRef.current === socket) socketRef.current = undefined;
     };
   }, [level, expectedKey, foreground]);
   return {
-    pings, online, error,
-    async publish(id: string, point: MapPoint, accuracy: number, emergency: boolean, simulated = false) {
-      if (!ready.current || !socketRef.current) throw new Error('Connect to the relay to send a location ping.');
-      const ack: Ack = await socketRef.current.timeout(5000).emitWithAck(mapPingEvents.send, { id, level, point, accuracy, emergency, simulated });
-      if (!ack.ok) throw new Error(ack.error);
+    pings, online, error, sharing,
+    async publish(id: string, _point: MapPoint, _accuracy: number, emergency: boolean, _simulated = false) {
+      if (!ready.current || !sharingRef.current) throw new Error('Connect to the relay to share a live location.');
+      await sharingRef.current.start(id, emergency);
     },
     async stop() {
-      if (!ready.current || !socketRef.current) throw new Error('Reconnect to stop your ping early. Otherwise it expires automatically.');
-      const ack: Ack = await socketRef.current.timeout(5000).emitWithAck(mapPingEvents.stop);
-      if (!ack.ok) throw new Error(ack.error);
+      await sharingRef.current?.stop();
     },
   };
 }

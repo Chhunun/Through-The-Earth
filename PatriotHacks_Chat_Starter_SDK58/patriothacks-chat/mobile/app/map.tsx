@@ -65,7 +65,16 @@ export default function MapScreen() {
   const lastRecordedAt = useRef(0);
   const testPoint = useRef<MapPoint>({ latitude: 0, longitude: 0 });
   const [level, setLevel] = useState<Room>('Middle Level');
-  const locationPings = useMapPings(level, ownKey);
+  const locationPings = useMapPings(level, ownKey, () => {
+    if (testing) return canTest && simPosition ? {
+      point: simPosition, accuracy: 0, timestamp: Date.now(), simulated: true,
+    } : undefined;
+    const fix = live.fix;
+    return fix && !live.stale && fix.accuracy !== null ? {
+      point: { latitude: fix.latitude, longitude: fix.longitude }, accuracy: fix.accuracy,
+      timestamp: fix.timestamp, simulated: false,
+    } : undefined;
+  });
   const [paths, setPaths] = useState<WalkPath[]>([]);
   const [simPosition, setSimPosition] = useState<MapPoint>();
   const position = testing ? simPosition : live.fix;
@@ -239,7 +248,7 @@ export default function MapScreen() {
       }
       walk.current = undefined;
       setDraft(undefined);
-      setMessage(queued ? 'Path saved and queued. Open this map when connected to finish sharing.' : share ? 'Path shared. Your live marker remains private.' : 'Path saved on this device.');
+      setMessage(queued ? 'Path saved and queued. Open this map when connected to finish sharing.' : share ? 'Path shared. Location sharing is controlled by the ping button.' : 'Path saved on this device.');
     } catch (error) { setMessage(String(error)); }
     finally { if (active.current) setBusy(false); }
   }
@@ -386,6 +395,12 @@ export default function MapScreen() {
 
   const validPingPosition = testing ? canTest && !!simPosition : !!live.fix && !live.stale && live.fix.accuracy !== null;
   function confirmPing() {
+    if (locationPings.sharing) {
+      setPingPending(true);
+      void locationPings.stop().then(() => setMessage('Live location sharing stopped.'))
+        .catch((error) => setMessage(String(error))).finally(() => setPingPending(false));
+      return;
+    }
     const simulated = testing && canTest;
     const fix = simulated && simPosition ? { ...simPosition, accuracy: 0, timestamp: Date.now() } : live.fix;
     if (!validPingPosition || !fix || fix.accuracy === null) {
@@ -397,20 +412,20 @@ export default function MapScreen() {
         try {
           if (!simulated && Date.now() - fix.timestamp > 15000) throw new Error('Location became outdated. Open Ping my location again.');
           await locationPings.publish(Crypto.randomUUID(), { latitude: fix.latitude, longitude: fix.longitude }, fix.accuracy!, emergency, simulated);
-          setMessage((simulated ? 'TEST position' : 'Your position') + ' shared on ' + level + ' for 60 seconds.');
+          setMessage((simulated ? 'TEST position' : 'Your position') + ' now follows you on ' + level + '. Tap Stop sharing location to stop.');
         } catch (error) { setMessage(String(error)); }
         finally { setPingPending(false); }
       })();
     };
     Alert.alert((simulated ? 'Share TEST position on ' : 'Share your location on ') + level + '?',
-      'Your name and this position will be visible to everyone viewing this map level for 60 seconds.' +
-      (simulated ? ' This is a simulated joystick position labelled TEST.' : ' This shares one position, not a live tracking feed.'),
+      'Your name and moving position will be visible to everyone viewing this map level while this map is open. Tap the same button again to stop.' +
+      (simulated ? ' This is a simulated joystick position labelled TEST.' : ' Sharing stops if you leave the map, change levels, or the app goes into the background.'),
       [{ text: 'Cancel', style: 'cancel' }, { text: 'Share position', onPress: () => publish(false) },
         { text: 'Emergency ping', onPress: () => publish(true) }]);
   }
-  const pingControl = <Pressable accessibilityRole="button" disabled={pingPending || !locationPings.online || !validPingPosition || draggingPin}
+  const pingControl = <Pressable accessibilityRole="button" disabled={pingPending || (!locationPings.sharing && (!locationPings.online || !validPingPosition)) || draggingPin}
     onPress={confirmPing} className="rounded bg-term-active border border-term-text p-3 disabled:opacity-50">
-    <Text className="font-mono font-semibold text-term-glow">{pingPending ? 'Sharing…' : 'Ping my location'}</Text>
+    <Text className="font-mono font-semibold text-term-glow">{pingPending ? 'Please wait…' : locationPings.sharing ? 'Stop sharing location' : 'Ping my location'}</Text>
   </Pressable>;
   const recordWalkControl = <Pressable accessibilityRole="button" disabled={busy || draggingPin}
     className="rounded bg-term-active border border-term-text p-3" onPress={() => { if (recording) stop(); else void start(); }}>
@@ -471,7 +486,7 @@ export default function MapScreen() {
         }} /> : null}
       <MapPingList pings={locationPings.pings} ownKey={ownKey} pending={pingPending} focus={setCamera}
         stop={() => { void locationPings.stop().then(() => setMessage('Your ping was removed.')).catch((error) => setMessage(String(error))); }} />
-      {!testing ? <Text className="font-mono text-xs text-term-muted">Cyan ripple: shared position · Red ripple: emergency location · Pings expire after 60 seconds.</Text> : null}
+      {!testing ? <Text className="font-mono text-xs text-term-muted">Cyan ripple: shared position · Red ripple: emergency location · Live pings follow the sender; stale pings disappear after 60 seconds without updates.</Text> : null}
       {locationPings.error ? <Text className="font-mono text-xs text-amber-200">{locationPings.error}</Text> : null}
       {!testing ? <MapPathsPanel paths={visible} sharedIds={sharedPathIds} selectedId={selectedPathId}
         level={level} ownLevel={ownLevel} online={online} pending={changingPath}
@@ -480,9 +495,9 @@ export default function MapScreen() {
       <Text className="font-mono text-xs text-term-muted">Dim green: saved paths · Green: overlapping recordings · Bright: current walk · Amber: selected walk · Nearby parallel routes may merge within about 6.5 ft.</Text>
       <Text className="font-mono text-xs text-term-muted">Map north stays up · Compass turns with your heading · Distances in feet and inches.</Text>
       <Text className="font-mono text-xs text-term-dim">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable'}</Text>
-      <Text className="font-mono text-xs text-term-dim">{position ? testing ? 'Simulated location' : (live.stale ? 'Last known location' : 'Your estimated location') + (accuracy != null ? ' · ±' + mapDistance(accuracy) : ' · Accuracy unknown') + ' · Private' : 'Waiting for location'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
+      <Text className="font-mono text-xs text-term-dim">{position ? testing ? 'Simulated location' : (live.stale ? 'Last known location' : 'Your estimated location') + (accuracy != null ? ' · ±' + mapDistance(accuracy) : ' · Accuracy unknown') + (locationPings.sharing ? ' · Sharing live' : ' · Private') : 'Waiting for location'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
       {!testing && live.status ? <Text className="font-mono text-xs text-amber-200">{live.status}</Text> : null}
-      {!testing ? <Text className="font-mono text-xs text-term-muted">Your moving marker stays private. Ping my location explicitly shares one position for 60 seconds. Choose your floor manually; GPS cannot identify indoor floors.</Text> : null}
+      {!testing ? <Text className="font-mono text-xs text-term-muted">Your moving marker stays private. Ping my location shares your moving position until you stop or leave the map. Choose your floor manually; GPS cannot identify indoor floors.</Text> : null}
       {pendingShares > 0 ? <Text className="font-mono text-xs text-amber-200">{pendingShares} shared path(s) waiting to sync. Retries run while this map is open.</Text> : null}
       {canTest ? <Pressable accessibilityRole="switch" accessibilityState={{ checked: testing, disabled: recording || busy || !!draft }}
         disabled={recording || busy || !!draft || draggingPin} onPress={toggleTesting} className="self-start rounded bg-term-field border border-term-line p-3">
