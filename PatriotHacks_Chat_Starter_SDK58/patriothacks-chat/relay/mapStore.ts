@@ -5,12 +5,16 @@ import { isWalkPath, type Ack, type WalkPath, type SharedMapPlace, type MapPlace
 // Fail startup on database errors rather than silently replacing saved maps.
 const db = new DatabaseSync(process.env.PATRIOT_MAP_DATABASE ?? fileURLToPath(new URL('./maps.sqlite', import.meta.url)));
 db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS map_paths (id TEXT PRIMARY KEY, body TEXT NOT NULL)');
-const find = db.prepare('SELECT body FROM map_paths WHERE id = ?');
+// Upgrade existing databases without losing shared walks.
+if (!db.prepare('PRAGMA table_info(map_paths)').all().some((row) => row.name === 'removed')) {
+  db.exec('ALTER TABLE map_paths ADD COLUMN removed INTEGER NOT NULL DEFAULT 0');
+}
+const find = db.prepare('SELECT body, removed FROM map_paths WHERE id = ?');
 const insert = db.prepare('INSERT INTO map_paths (id, body) VALUES (?, ?)');
-const count = db.prepare('SELECT COUNT(*) AS total FROM map_paths');
+const count = db.prepare('SELECT COUNT(*) AS total FROM map_paths WHERE removed=0');
 
 export function readMap(): WalkPath[] {
-  return db.prepare('SELECT body FROM map_paths ORDER BY rowid').all().map((row) => {
+  return db.prepare('SELECT body FROM map_paths WHERE removed=0 ORDER BY rowid').all().map((row) => {
     const path: unknown = JSON.parse(String(row.body));
     if (!isWalkPath(path)) throw new Error('Invalid path in map database');
     return path;
@@ -25,8 +29,9 @@ export function storeMapPath(path: WalkPath): Ack {
   try {
     const existing = find.get(path.id);
     let result: Ack;
-    if (existing) result = existing.body === body ? { ok: true } : { ok: false, error: 'Path ID already used' };
-    else if (Number(count.get()?.total) >= 1000) result = { ok: false, error: 'The shared map has reached its path limit.' };
+    if (existing?.removed) result = { ok: false, error: 'PATH_REMOVED' };
+    else if (existing) result = existing.body === body ? { ok: true } : { ok: false, error: 'Path ID already used' };
+    else if (Number(count.get()?.total) >= 1000 || Number(db.prepare('SELECT COUNT(*) AS n FROM map_paths').get()?.n) >= 10000) result = { ok: false, error: 'The shared map has reached its path limit.' };
     else { insert.run(path.id, body); result = { ok: true }; }
     db.exec('COMMIT');
     return result;
@@ -93,4 +98,17 @@ export function moveMapPlace(id: string, from: MapPoint, to: MapPoint): Ack {
     db.exec('COMMIT');
     return result;
   } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
+
+export function readMapPathState() {
+  return { paths: readMap(), deletedIds: db.prepare('SELECT id FROM map_paths WHERE removed=1 ORDER BY rowid').all().map((row) => String(row.id)) };
+}
+export function removeMapPath(id: string, level: string | undefined): Ack {
+  if (!level) return { ok: false, error: 'Set your profile level before deleting shared paths.' };
+  const row = db.prepare('SELECT body FROM map_paths WHERE id=?').get(id);
+  if (!row) return { ok: false, error: 'Shared path not found.' };
+  const path: WalkPath = JSON.parse(String(row.body));
+  if (path.level !== level) return { ok: false, error: 'Only residents of this level can delete its shared paths.' };
+  db.prepare('UPDATE map_paths SET removed=1 WHERE id=?').run(id);
+  return { ok: true };
 }

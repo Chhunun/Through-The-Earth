@@ -1,7 +1,7 @@
 import { mapPlaceEvents, isMapPlaceSnapshot, type MapPlaceSnapshot, type SharedMapPlace, type MapPoint } from '@patriot/protocol';
-import { finishMapShare, pendingMapShares, queueMapShare } from './mapStorage';
+import { finishMapShare, pendingMapShares, queueMapShare, loadRemovedPathIds, forgetSharedPath, forgetSharedPaths } from './mapStorage';
 import { io } from 'socket.io-client';
-import { events, mapEvents, isWalkPath, type Ack, type Challenge, type WalkPath } from '@patriot/protocol';
+import { events, mapEvents, isWalkPath, isMapPathState, type Ack, type Challenge, type WalkPath } from '@patriot/protocol';
 import { proveIdentity, publicKey } from './crypto';
 
 export async function mapConnection(
@@ -9,8 +9,15 @@ export async function mapConnection(
   onStatus: (online: boolean, error?: string) => void,
   onQueue: (count: number) => void = () => {},
   onPlaces: (snapshot: MapPlaceSnapshot) => void = () => {},
+  onRemovedPaths: (ids: string[]) => void = () => {},
 ) {
   const key = await publicKey();
+  const deleted = new Set(await loadRemovedPathIds());
+  function removed(ids: string[]) {
+    for (const id of ids) deleted.add(id);
+    onRemovedPaths(ids);
+    void forgetSharedPaths(ids).catch((error) => { if (!closed) onStatus(ready, String(error)); });
+  }
   const url = process.env.EXPO_PUBLIC_RELAY_URL;
   if (!url) throw new Error('Set EXPO_PUBLIC_RELAY_URL in mobile/.env');
   let ready = false;
@@ -35,7 +42,10 @@ export async function mapConnection(
       for (const path of pending) {
         if (!ready || closed) return;
         const ack: Ack = await socket.timeout(5000).emitWithAck(mapEvents.contribute, path);
-        if (!ack.ok) throw new Error(ack.error);
+        if (!ack.ok) {
+          if (ack.error === 'PATH_REMOVED') { removed([path.id]); await finishMapShare(key, path.id); await refreshQueue(); continue; }
+          throw new Error(ack.error);
+        }
         // Acknowledge only after the relay commits to disk. Retries are idempotent.
         await finishMapShare(key, path.id);
         await refreshQueue();
@@ -50,8 +60,11 @@ export async function mapConnection(
   socket.on(mapPlaceEvents.snapshot, receivePlaces);
   socket.on('disconnect', () => { ready = false; onStatus(false); });
   socket.on('connect_error', (error) => { ready = false; onStatus(false, error.message); });
+  socket.on(mapEvents.removed, (id: unknown) => {
+    if (typeof id === 'string' && /^[0-9a-f-]{36}$/.test(id)) removed([id]);
+  });
   socket.on(mapEvents.path, (path: unknown) => {
-    if (isWalkPath(path)) onPaths([path]);
+    if (isWalkPath(path) && !deleted.has(path.id)) onPaths([path]);
   });
   socket.on(events.challenge, async (challenge: Challenge) => {
     ready = false;
@@ -62,13 +75,15 @@ export async function mapConnection(
       if (socket.id !== connection) return;
       const ack: Ack = await socket.timeout(5000).emitWithAck(events.authenticate, proof);
       if (!ack.ok) throw new Error(ack.error);
-      const paths: unknown[] = await socket.timeout(5000).emitWithAck(mapEvents.read);
+      const state: unknown = await socket.timeout(5000).emitWithAck(mapEvents.sync);
+      if (!isMapPathState(state)) throw new Error('Invalid shared map response. Restart the updated relay.');
+      removed(state.deletedIds);
       if (socket.id !== connection) return;
       const places: unknown = await socket.timeout(5000).emitWithAck(mapPlaceEvents.read);
       if (closed || socket.id !== connection) return;
       receivePlaces(places);
       ready = true;
-      onPaths(paths.filter(isWalkPath));
+      onPaths(state.paths.filter((path) => !deleted.has(path.id)));
       onStatus(true);
       retry();
     } catch (error) {
@@ -80,6 +95,13 @@ export async function mapConnection(
   socket.connect();
   return {
     close() { closed = true; ready = false; clearInterval(timer); socket.removeAllListeners(); socket.disconnect(); },
+    async removePath(id: string) {
+      if (!ready) throw new Error('Connect to the relay to delete a shared path.');
+      const ack: Ack = await socket.timeout(5000).emitWithAck(mapEvents.remove, id);
+      if (!ack.ok) throw new Error(ack.error);
+      removed([id]);
+      await forgetSharedPath(id);
+    },
     async addPlace(place: SharedMapPlace) {
       if (!ready) throw new Error('Connect to the relay to publish a shared marker.');
       const ack: Ack = await socket.timeout(5000).emitWithAck(mapPlaceEvents.add, place);

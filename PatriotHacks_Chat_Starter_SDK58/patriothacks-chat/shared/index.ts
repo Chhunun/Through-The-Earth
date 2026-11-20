@@ -204,7 +204,7 @@ export type LevelTemperatures = Record<Room, LevelTemperature>;
 
 export type MapPoint = { latitude: number; longitude: number };
 export type WalkPath = { id: string; level: Room; points: MapPoint[] };
-export const mapEvents = { read: 'map:read', contribute: 'map:contribute', path: 'map:path' };
+export const mapEvents = { read: 'map:read', contribute: 'map:contribute', path: 'map:path', sync: 'map:sync', remove: 'map:remove', removed: 'map:removed' };
 
 export function isWalkPath(value: unknown): value is WalkPath {
   if (!value || typeof value !== 'object') return false;
@@ -254,4 +254,13 @@ export function isMapPoint(value: unknown): value is MapPoint {
   const p = value as MapPoint;
   return Number.isFinite(p.latitude) && Math.abs(p.latitude) <= 90
     && Number.isFinite(p.longitude) && Math.abs(p.longitude) <= 180;
+}
+
+export type MapPathState = { paths: WalkPath[]; deletedIds: string[] };
+export function isMapPathState(value: unknown): value is MapPathState {
+  if (!value || typeof value !== 'object') return false;
+  const s = value as MapPathState;
+  return Array.isArray(s.paths) && s.paths.length <= 1000 && s.paths.every(isWalkPath)
+    && Array.isArray(s.deletedIds) && s.deletedIds.length <= 10000
+    && s.deletedIds.every((id) => typeof id === 'string' && /^[0-9a-f-]{36}$/.test(id));
 }

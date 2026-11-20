@@ -1,5 +1,6 @@
+import type { MapPathState } from '@patriot/protocol';
 import { mapPlaceEvents, isMapPlace, isMapPoint, type MapPlaceSnapshot } from '@patriot/protocol';
-import { readMap, storeMapPath, readMapPlaces, storeMapPlace, removeMapPlace, moveMapPlace } from './mapStore.js';
+import { readMap, storeMapPath, readMapPathState, removeMapPath, readMapPlaces, storeMapPlace, removeMapPlace, moveMapPlace } from './mapStore.js';
 import { profiles, storeProfile } from './profiles.js';
 import { validateReport, saveReport, readReports, incidentSnapshot, severeReports, levelTemperatures } from './reports.js';
 import { createServer } from 'node:http';
@@ -129,6 +130,22 @@ io.on('connection', (socket) => {
       if (result.ok) io.to('room-readers').emit(mapPlaceEvents.snapshot, readMapPlaces());
       reply(result);
     } catch (error) { console.error('Remove map marker failed', error); reply({ ok: false, error: 'Could not remove marker.' }); }
+  });
+
+  socket.on(mapEvents.sync, (reply: (state: MapPathState) => void) => {
+    if (!authenticated || typeof reply !== 'function') return;
+    try { reply(readMapPathState()); } catch (error) { console.error('Read path state failed', error); }
+  });
+  socket.on(mapEvents.remove, (id: unknown, reply: (ack: Ack) => void) => {
+    if (typeof reply !== 'function') return;
+    if (!authenticated || typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id)) {
+      reply({ ok: false, error: 'Invalid path or session.' }); return;
+    }
+    try {
+      const result = removeMapPath(id, profiles[key]?.level);
+      if (result.ok) io.to('room-readers').emit(mapEvents.removed, id);
+      reply(result);
+    } catch (error) { console.error('Remove path failed', error); reply({ ok: false, error: 'Could not remove path.' }); }
   });
 
   socket.on(mapEvents.read, (reply: (paths: WalkPath[]) => void) => {

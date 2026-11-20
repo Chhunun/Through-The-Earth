@@ -1,3 +1,5 @@
+import MapPathsPanel from '../src/MapPathsPanel';
+import { cacheSharedPath, loadRemovedPathIds, loadSharedPathIds } from '../src/mapStorage';
 import { blockPlacementPoint, type DropFrame } from '../src/blockPlacement';
 import { MapPlaceLayer, MapPlacesPanel } from '../src/MapPlaces';
 import { loadPrivatePlaces, savePrivatePlace, removePrivatePlace, movePrivatePlace, loadSharedPlaces, cacheSharedPlaces } from '../src/mapStorage';
@@ -20,6 +22,11 @@ import { mapConnection } from '../src/mapConnection';
 import { loadMap, saveMapPath, queueMapShare } from '../src/mapStorage';
 
 export default function MapScreen() {
+  const ownLevel = useChat((state) => state.profiles[state.key]?.level);
+  const deletedPaths = useRef(new Set<string>());
+  const [sharedPathIds, setSharedPathIds] = useState(new Set<string>());
+  const [selectedPathId, setSelectedPathId] = useState<string>();
+  const [changingPath, setChangingPath] = useState(false);
   const canTest = useChat((state) => state.profiles[state.key]?.name === 'test');
   const mapView = useRef<View>(null);
   const rootView = useRef<View>(null);
@@ -81,7 +88,7 @@ export default function MapScreen() {
     active.current = true;
     function merge(incoming: WalkPath[]) {
       if (!active.current) return;
-      setPaths((current) => [...new Map([...current, ...incoming].map((path) => [path.id, path])).values()]);
+      setPaths((current) => [...new Map([...current, ...incoming].filter((path) => !deletedPaths.current.has(path.id)).map((path) => [path.id, path])).values()]);
     }
     let owner: string;
     publicKey().then(async (key) => {
@@ -92,10 +99,16 @@ export default function MapScreen() {
     loadSharedPlaces().then((snapshot) => {
       if (snapshot && active.current && !receivedPlaces.current) setSharedPlaces(snapshot);
     }).catch(() => { if (active.current) setMessage('Could not load cached markers.'); });
-    loadMap().then(merge).catch(() => setMessage('Could not load the cached map.'));
+    Promise.all([loadRemovedPathIds(), loadSharedPathIds(), loadMap()]).then(([deleted, ids, cached]) => {
+      for (const id of deleted) deletedPaths.current.add(id);
+      if (!active.current) return;
+      setSharedPathIds((current) => new Set([...current, ...ids].filter((id) => !deletedPaths.current.has(id))));
+      merge(cached);
+    }).catch(() => { if (active.current) setMessage('Could not load the cached map.'); });
     mapConnection((incoming) => {
       merge(incoming);
-      for (const path of incoming) void saveMapPath(path).catch(() => {
+      setSharedPathIds((current) => new Set([...current, ...incoming.map((path) => path.id)].filter((id) => !deletedPaths.current.has(id))));
+      for (const path of incoming) void cacheSharedPath(path).catch(() => {
         if (active.current) setMessage('Could not cache a shared path.');
       });
     }, (connected, error) => {
@@ -110,6 +123,12 @@ export default function MapScreen() {
       cacheWrites.current = cacheWrites.current.then(() => cacheSharedPlaces(snapshot)).catch(() => {
         if (active.current) setMessage('Could not cache map markers.');
       });
+    }, (ids) => {
+      for (const id of ids) deletedPaths.current.add(id);
+      if (!active.current) return;
+      setPaths((current) => current.filter((path) => !deletedPaths.current.has(path.id)));
+      setSharedPathIds((current) => new Set([...current].filter((id) => !deletedPaths.current.has(id))));
+      setSelectedPathId((current) => current && deletedPaths.current.has(current) ? undefined : current);
     }).then((relay) => {
       if (active.current) connection.current = relay;
       else relay.close();
@@ -240,6 +259,28 @@ export default function MapScreen() {
     setMessage('');
   }
 
+  async function removeSharedWalk(path: WalkPath) {
+    setChangingPath(true);
+    try {
+      if (!connection.current) throw new Error('Relay unavailable.');
+      await connection.current.removePath(path.id);
+      if (active.current) setMessage('Shared walk deleted for everyone.');
+    } catch (error) {
+      if (active.current) setMessage(String(error));
+      throw error;
+    } finally { if (active.current) setChangingPath(false); }
+  }
+  async function shareSavedWalk(path: WalkPath) {
+    setChangingPath(true);
+    try {
+      if (!connection.current) throw new Error('Reopen the map to initialize the relay connection.');
+      const queued = await connection.current.contribute(path);
+      if (active.current) setMessage(queued ? 'Path queued. Open the map when connected to finish sharing.' : 'Path shared with this level.');
+    } catch (error) {
+      if (active.current) setMessage(String(error));
+      throw error;
+    } finally { if (active.current) setChangingPath(false); }
+  }
   async function createPlace(kind: MapPlaceKind, label: string, blackout: 'Some areas dark' | 'Whole level dark', point: MapPoint, id: string) {
     if (!point || testing) throw new Error('Choose a real map location first.');
     if (kind !== 'block' && !picked && live.stale) throw new Error('Your location is outdated. Wait for a fresh fix or hold a location on the map.');
@@ -328,6 +369,11 @@ export default function MapScreen() {
     await createPlace('block', 'Blocked passage', 'Some areas dark', point, Crypto.randomUUID());
   }
 
+  const recordWalkControl = <Pressable accessibilityRole="button" disabled={busy || draggingPin}
+    className="rounded bg-sky-800 p-3" onPress={() => { if (recording) stop(); else void start(); }}>
+    <Text className="text-white">{recording ? 'Stop recording' : 'Record walk'}</Text>
+  </Pressable>;
+
   return <SafeAreaView ref={rootView} collapsable={false} style={{ flex: 1, backgroundColor: '#020617' }}>
     <ScrollView scrollEnabled={!usingJoystick && !draggingPin} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && recording ? 170 : 16 }}>
       <Pressable onPress={() => router.back()} accessibilityRole="button"><Text className="font-semibold text-sky-300">‹ Social network</Text></Pressable>
@@ -343,7 +389,8 @@ export default function MapScreen() {
         setSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
       }} style={{ height: 350, overflow: 'hidden', borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' }}>
         <MapPathLayer segments={merged} draft={draft?.level === level ? draft : undefined}
-          center={center} width={size.width} height={size.height} scale={scale} />
+          center={center} width={size.width} height={size.height} scale={scale}
+          highlight={!testing ? visible.find((path) => path.id === selectedPathId) : undefined} />
         {position ? <View accessibilityLabel="Your estimated location, visible only to you" style={{ position: 'absolute', left: markerX - 7, top: markerY - 7, height: 14, width: 14, borderRadius: 7, backgroundColor: '#f8fafc', borderWidth: 3, borderColor: !testing && live.stale ? '#94a3b8' : '#2563eb' }} /> : null}
         {position && heading !== undefined ? <View pointerEvents="none" style={{
           position: 'absolute', left: markerX - 14, top: markerY - 14,
@@ -361,13 +408,17 @@ export default function MapScreen() {
       {camera ? <Pressable onPress={() => setCamera(undefined)}><Text className="text-sky-300">Follow my location</Text></Pressable> : null}
       {!testing ? <MapPlacesPanel level={level} target={picked ?? position} picked={!!picked}
         clearPicked={() => setPicked(undefined)} places={places} online={online} disabled={busy}
-        create={createPlace} inspect={inspectPlace} focus={setCamera}
+        create={createPlace} inspect={inspectPlace} focus={setCamera} walkControl={recordWalkControl}
         blockPlacement={{
           begin: beginBlockPlacement,
           preview: (x, y) => setBlockGhost({ x: x - rootOrigin.current.x, y: y - rootOrigin.current.y }),
           finish: finishBlockPlacement,
           cancel: () => { dropFrame.current = undefined; setBlockGhost(undefined); setDraggingPin(false); },
         }} /> : null}
+      {!testing ? <MapPathsPanel paths={visible} sharedIds={sharedPathIds} selectedId={selectedPathId}
+        level={level} ownLevel={ownLevel} online={online} pending={changingPath}
+        select={(path) => { setSelectedPathId(path.id); setCamera(path.points[0]); }}
+        remove={removeSharedWalk} share={shareSavedWalk} /> : null}
       <Text className="text-xs text-slate-400">Grey: saved paths · Light grey: overlapping recordings · Blue: current walk · Nearby parallel routes may merge within about 6.5 ft.</Text>
       <Text className="text-xs text-slate-400">Map north stays up · Compass turns with your heading · Distances in feet and inches.</Text>
       <Text className="text-xs text-slate-300">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable'}</Text>
@@ -380,9 +431,7 @@ export default function MapScreen() {
         <Text className="text-white">{testing ? 'Test joystick: on' : 'Test joystick: off'}</Text>
       </Pressable> : null}
       {testing ? <Text className="text-xs text-amber-200">Simulation · Test paths stay in this session. Choose Record walk, then drag the joystick.</Text> : null}
-      <View className="flex-row flex-wrap gap-2">
-        <Pressable disabled={busy} className="rounded bg-sky-800 p-3" onPress={() => { if (recording) stop(); else void start(); }}><Text className="text-white">{recording ? 'Stop recording' : 'Record walk'}</Text></Pressable>
-      </View>
+      {testing ? <View className="flex-row flex-wrap gap-2">{recordWalkControl}</View> : null}
       {draft ? <View className="flex-row flex-wrap gap-2">
         <Pressable disabled={busy} className="rounded bg-zinc-800 p-3" onPress={() => { void save(false); }}><Text className="text-white">{testing ? 'Keep test path' : 'Save locally'}</Text></Pressable>
         {!testing ? <Pressable disabled={busy} className="rounded bg-sky-800 p-3" onPress={() => Alert.alert('Share this route?', 'Everyone connected to this relay can see its coordinates. The route may reveal places you visited.', [{ text: 'Cancel' }, { text: 'Share path', onPress: () => { void save(true); } }])}><Text className="text-white">Share path</Text></Pressable> : null}
