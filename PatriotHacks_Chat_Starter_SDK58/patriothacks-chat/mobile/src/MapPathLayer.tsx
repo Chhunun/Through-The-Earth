@@ -6,6 +6,7 @@ import type { MergedWalkSegment } from './mergeWalkPaths';
 type Props = {
   segments: MergedWalkSegment[];
   draft?: WalkPath;
+  highlight?: WalkPath;
   center?: MapPoint;
   width: number;
   height: number;
@@ -19,7 +20,7 @@ const Drawing = memo(function Drawing({ data, color, strokeWidth }: {
     strokeLinecap="round" strokeLinejoin="round" />;
 });
 
-export default memo(function MapPathLayer({ segments, draft, center, width, height, scale }: Props) {
+export default memo(function MapPathLayer({ segments, draft, highlight, center, width, height, scale }: Props) {
   // Coordinates stay relative to a fixed origin. Moving the camera changes
   // only the SVG viewBox instead of rebuilding every native line view.
   const origin = segments[0]?.from ?? draft?.points[0];
@@ -41,6 +42,10 @@ export default memo(function MapPathLayer({ segments, draft, center, width, heig
     (index ? 'L' : 'M') + ((point.longitude - longitude) * longitudeMeters).toFixed(2) + ',' +
     (-(point.latitude - latitude) * 111320).toFixed(2)).join('') ?? '',
   [draft, latitude, longitude, longitudeMeters]);
+  const selected = useMemo(() => highlight?.points.map((point, index) =>
+    (index ? 'L' : 'M') + ((point.longitude - longitude) * longitudeMeters).toFixed(2) + ',' +
+    (-(point.latitude - latitude) * 111320).toFixed(2)).join('') ?? '',
+  [highlight, latitude, longitude, longitudeMeters]);
   if (!center || !origin) return null;
   const x = (center.longitude - longitude) * longitudeMeters;
   const y = -(center.latitude - latitude) * 111320;
@@ -51,6 +56,7 @@ export default memo(function MapPathLayer({ segments, draft, center, width, heig
     viewBox={`${x - viewWidth / 2} ${y - viewHeight / 2} ${viewWidth} ${viewHeight}`}>
     <Drawing data={recorded.normal} color="#9ca3af" strokeWidth={3 / scale} />
     <Drawing data={recorded.repeated} color="#d1d5db" strokeWidth={3 / scale} />
+    <Drawing data={selected} color="#fbbf24" strokeWidth={5 / scale} />
     <Drawing data={live} color="#38bdf8" strokeWidth={3 / scale} />
   </Svg>;
 });
