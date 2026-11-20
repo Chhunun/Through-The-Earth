@@ -76,8 +76,9 @@ export function MapPlaceLayer({ places, center, originLatitude, scale, width, he
   </>;
 }
 
-export function MapPlacesPanel({ level, target, picked, clearPicked, places, online, disabled, create, inspect, focus, blockPlacement, walkControl }: {
+export function MapPlacesPanel({ level, target, picked, clearPicked, places, online, disabled, create, inspect, focus, blockPlacement, walkControl, pingControl }: {
   walkControl: ReactNode;
+  pingControl?: ReactNode;
   blockPlacement: {
     begin: () => Promise<void>; preview: (x: number, y: number) => void;
     finish: (drop?: { x: number; y: number }) => Promise<void>; cancel: () => void;
@@ -115,6 +116,7 @@ export function MapPlacesPanel({ level, target, picked, clearPicked, places, onl
     {picked ? <Pressable onPress={clearPicked}><Text className="font-mono text-term-glow">Use my location instead</Text></Pressable> : null}
     <View className="flex-row flex-wrap gap-2">
       {walkControl}
+      {pingControl}
       {(['personal', 'blackout'] as const).map((value) => <Pressable key={value}
         disabled={disabled || saving} onPress={() => open(value)} className="rounded bg-term-field border border-term-line p-3">
         <Text className="font-mono" style={{ color: placeColor(value) }}>{value === 'personal' ? 'Save pin' : 'Report blackout'}</Text>

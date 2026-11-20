@@ -1,3 +1,6 @@
+import MapPingLayer from '../src/MapPingLayer';
+import MapPingList from '../src/MapPingList';
+import { useMapPings } from '../src/useMapPings';
 import MapPathsPanel from '../src/MapPathsPanel';
 import term from '../src/terminal-colors.json';
 import { cacheSharedPath, loadRemovedPathIds, loadSharedPathIds } from '../src/mapStorage';
@@ -23,6 +26,8 @@ import { mapConnection } from '../src/mapConnection';
 import { loadMap, saveMapPath, queueMapShare } from '../src/mapStorage';
 
 export default function MapScreen() {
+  const ownKey = useChat((state) => state.key);
+  const [pingPending, setPingPending] = useState(false);
   const ownLevel = useChat((state) => state.profiles[state.key]?.level);
   const deletedPaths = useRef(new Set<string>());
   const [sharedPathIds, setSharedPathIds] = useState(new Set<string>());
@@ -53,6 +58,7 @@ export default function MapScreen() {
   const lastRecordedAt = useRef(0);
   const testPoint = useRef<MapPoint>({ latitude: 0, longitude: 0 });
   const [level, setLevel] = useState<Room>('Middle Level');
+  const locationPings = useMapPings(!testing && level === ownLevel ? level : undefined, ownKey);
   const [paths, setPaths] = useState<WalkPath[]>([]);
   const [simPosition, setSimPosition] = useState<MapPoint>();
   const position = testing ? simPosition : live.fix;
@@ -340,7 +346,7 @@ export default function MapScreen() {
   const merged = useMemo(() => mergeWalkPaths(
     (testing ? testPaths : paths).filter((path) => path.level === level),
   ), [testing, testPaths, paths, level]);
-  const center = camera ?? position ?? tracks[0]?.points[0] ?? places[0]?.point;
+  const center = camera ?? position ?? tracks[0]?.points[0] ?? places[0]?.point ?? locationPings.pings[0]?.point;
   const originLatitude = merged[0]?.from.latitude ?? draft?.points[0]?.latitude ?? center?.latitude ?? 0;
   const longitudeMeters = 111320 * Math.cos(originLatitude * Math.PI / 180);
   const markerX = center && position ? size.width / 2 + (position.longitude - center.longitude) * longitudeMeters * scale : -100;
@@ -370,6 +376,31 @@ export default function MapScreen() {
     await createPlace('block', 'Blocked passage', 'Some areas dark', point, Crypto.randomUUID());
   }
 
+  function confirmPing() {
+    const fix = live.fix;
+    if (testing || level !== ownLevel || !fix || live.stale || fix.accuracy === null) {
+      setMessage('A fresh real location fix on your profile level is required to ping.'); return;
+    }
+    const publish = (emergency: boolean) => {
+      void (async () => {
+        setPingPending(true);
+        try {
+          if (Date.now() - fix.timestamp > 15000) throw new Error('Location became outdated. Open Ping my location again.');
+          await locationPings.publish(Crypto.randomUUID(), { latitude: fix.latitude, longitude: fix.longitude }, fix.accuracy!, emergency);
+          setMessage('Your position is shared with your level for 60 seconds.');
+        } catch (error) { setMessage(String(error)); }
+        finally { setPingPending(false); }
+      })();
+    };
+    Alert.alert('Share your location with ' + level + '?',
+      'Your name and this position will be visible to residents of this level for 60 seconds. This shares one position, not a live tracking feed.',
+      [{ text: 'Cancel', style: 'cancel' }, { text: 'Share position', onPress: () => publish(false) },
+        { text: 'Emergency ping', onPress: () => publish(true) }]);
+  }
+  const pingControl = <Pressable accessibilityRole="button" disabled={pingPending || !locationPings.online || live.stale || !position || level !== ownLevel || draggingPin}
+    onPress={confirmPing} className="rounded bg-term-active border border-term-text p-3 disabled:opacity-50">
+    <Text className="font-mono font-semibold text-term-glow">{pingPending ? 'Sharing…' : 'Ping my location'}</Text>
+  </Pressable>;
   const recordWalkControl = <Pressable accessibilityRole="button" disabled={busy || draggingPin}
     className="rounded bg-term-active border border-term-text p-3" onPress={() => { if (recording) stop(); else void start(); }}>
     <Text className="font-mono text-term-text">{recording ? 'Stop recording' : 'Record walk'}</Text>
@@ -399,23 +430,30 @@ export default function MapScreen() {
         }}>
           <Text className="font-mono" style={{ position: 'absolute', top: -15, left: 5, color: term.glow, fontSize: 20 }}>▲</Text>
         </View> : null}
-        {!tracks.some((path) => path.points.length > 1) ? <Text className="font-mono px-12 pt-24 text-term-muted">No paths recorded on this level yet.</Text> : null}
+        {!tracks.some((path) => path.points.length > 1) ? <Text pointerEvents="none" className="font-mono text-term-muted" style={{ position: 'absolute', left: 12, right: 12, top: 96, textAlign: 'left' }}>No paths recorded on this level yet.</Text> : null}
         {!testing ? <MapPlaceLayer places={places} center={center} originLatitude={originLatitude}
           scale={scale} width={size.width} height={size.height} picked={picked}
           pick={setPicked} inspect={inspectPlace} move={movePlace} online={online}
           interaction={(value) => { if (value && center) setCamera({ ...center }); setDraggingPin(value); }} /> : null}
+        {!testing ? <MapPingLayer pings={locationPings.pings} center={center} originLatitude={originLatitude}
+          scale={scale} width={size.width} height={size.height} /> : null}
         <MapControls width={size.width} scale={scale} zoom={setScale} heading={heading} />
       </View>
       {camera ? <Pressable onPress={() => setCamera(undefined)}><Text className="font-mono text-term-glow">Follow my location</Text></Pressable> : null}
       {!testing ? <MapPlacesPanel level={level} target={picked ?? position} picked={!!picked}
         clearPicked={() => setPicked(undefined)} places={places} online={online} disabled={busy}
-        create={createPlace} inspect={inspectPlace} focus={setCamera} walkControl={recordWalkControl}
+        create={createPlace} inspect={inspectPlace} focus={setCamera} walkControl={recordWalkControl} pingControl={pingControl}
         blockPlacement={{
           begin: beginBlockPlacement,
           preview: (x, y) => setBlockGhost({ x: x - rootOrigin.current.x, y: y - rootOrigin.current.y }),
           finish: finishBlockPlacement,
           cancel: () => { dropFrame.current = undefined; setBlockGhost(undefined); setDraggingPin(false); },
         }} /> : null}
+      {!testing ? <MapPingList pings={locationPings.pings} ownKey={ownKey} pending={pingPending} focus={setCamera}
+        stop={() => { void locationPings.stop().then(() => setMessage('Your ping was removed.')).catch((error) => setMessage(String(error))); }} /> : null}
+      {!testing ? <Text className="font-mono text-xs text-term-muted">Cyan ripple: shared position · Red ripple: emergency location · Pings expire after 60 seconds.</Text> : null}
+      {!testing && level !== ownLevel ? <Text className="font-mono text-xs text-term-muted">Location pings are available on your profile level.</Text> : null}
+      {!testing && locationPings.error ? <Text className="font-mono text-xs text-amber-200">{locationPings.error}</Text> : null}
       {!testing ? <MapPathsPanel paths={visible} sharedIds={sharedPathIds} selectedId={selectedPathId}
         level={level} ownLevel={ownLevel} online={online} pending={changingPath}
         select={(path) => { setSelectedPathId(path.id); setCamera(path.points[0]); }}
@@ -425,7 +463,7 @@ export default function MapScreen() {
       <Text className="font-mono text-xs text-term-dim">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable'}</Text>
       <Text className="font-mono text-xs text-term-dim">{position ? testing ? 'Simulated location' : (live.stale ? 'Last known location' : 'Your estimated location') + (accuracy != null ? ' · ±' + mapDistance(accuracy) : ' · Accuracy unknown') + ' · Private' : 'Waiting for location'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
       {!testing && live.status ? <Text className="font-mono text-xs text-amber-200">{live.status}</Text> : null}
-      {!testing ? <Text className="font-mono text-xs text-term-muted">Marker follows you while this map is open. It is never shared. Choose your floor manually; GPS cannot identify indoor floors.</Text> : null}
+      {!testing ? <Text className="font-mono text-xs text-term-muted">Your moving marker stays private. Ping my location explicitly shares one position for 60 seconds. Choose your floor manually; GPS cannot identify indoor floors.</Text> : null}
       {pendingShares > 0 ? <Text className="font-mono text-xs text-amber-200">{pendingShares} shared path(s) waiting to sync. Retries run while this map is open.</Text> : null}
       {canTest ? <Pressable accessibilityRole="switch" accessibilityState={{ checked: testing, disabled: recording || busy || !!draft }}
         disabled={recording || busy || !!draft || draggingPin} onPress={toggleTesting} className="self-start rounded bg-term-field border border-term-line p-3">

@@ -12,6 +12,8 @@ import { events, isEnvelope, isPublicKey, isRoom, incidentEvent, levelPresenceEv
 
 import { registerSos } from './sos.js';
 
+import { registerMapPings } from './mapPings.js';
+
 const app = express();
 app.get('/health', (_request, response) => response.json({ ok: true }));
 const server = createServer(app);
@@ -80,6 +82,8 @@ io.on('connection', (socket) => {
     publishPresence();
     for (const message of pending.get(key)?.values() ?? []) socket.emit(events.receive, message);
   });
+
+  registerMapPings(io, socket, () => authenticated, (key) => profiles[key]);
 
   socket.on(mapPlaceEvents.read, (reply: (snapshot: MapPlaceSnapshot) => void) => {
     if (!authenticated || typeof reply !== 'function') return;
