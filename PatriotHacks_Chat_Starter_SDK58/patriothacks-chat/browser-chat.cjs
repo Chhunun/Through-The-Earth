@@ -10,6 +10,8 @@ const browserCode = buildSync({
     resolveDir: __dirname,
     sourcefile: 'browser-chat.js',
     contents: String.raw`
+import { startSosChoice } from './shared/sosChoice.ts';
+import { sosTypes, sosLabels, sosText, sosEvent, isSosMessage } from './shared/sosTypes.ts';
 import { io } from 'socket.io-client';
 import nacl from 'tweetnacl';
 import { events, isEnvelope, isPublicKey, parseChatProfile, profileEvents, profileLabel, rooms, roomEvents, parseLevelReport, reportEvents, reportPie, reportQuestions, sosMessage, checkInMessages, checkInStatus, incidentEvent, incidentLabels, incidentWindowMinutes, localClock, dailyLogQuestions, dailyLogDay, dailyLogDayLabel, dailyLogNotesLimit, parseDailyLogEntry } from './shared/index.ts';
@@ -169,7 +171,7 @@ for (const [kind, id] of [['okay', 'check-in-okay'], ['request', 'check-in-reque
   field(id).addEventListener('click', () => {
     const to = field('recipient').value.trim();
     if (selectedRoom || !isPublicKey(to) || to === ownKey) return;
-    if (kind === 'help' && !window.confirm('Send an in-app SOS to this contact?')) return;
+    if (kind === 'help') { openSos(true); return; }
     field('error').textContent = '';
     try {
       setOutbox([...checkInOutbox, makeDirectEnvelope(to, checkInMessages[kind])]);
@@ -813,7 +815,7 @@ socket.on(events.challenge, async (challenge) => {
 
 function show(label, text) {
   const line = document.createElement('li');
-  if (text === sosMessage) line.className = 'sos-message';
+  if (isSosMessage(text)) line.className = 'sos-message';
   line.textContent = label + ': ' + text;
   field('messages').append(line);
   line.scrollIntoView({ block: 'nearest' });
@@ -894,11 +896,68 @@ field('chat').addEventListener('submit', (event) => {
   event.preventDefault();
   void sendChat();
 });
-field('sos').addEventListener('click', () => {
-  if (window.confirm('Post an in-app SOS to ' + (selectedRoom || 'this direct chat') + '?')) {
-    void sendChat(true);
+let sosChoice;
+function closeSos() {
+  sosChoice?.cancel();
+  sosChoice = undefined;
+  field('sos-dialog').close();
+}
+function openSos(contactOnly = false) {
+  if (sosChoice || sendingChat) return;
+  const room = contactOnly ? undefined : (selectedRoom || undefined);
+  const to = field('recipient').value.trim();
+  if (!room && (!isPublicKey(to) || to === ownKey)) return;
+  const source = room ?? profiles[ownKey]?.level;
+  const id = crypto.randomUUID();
+  field('sos-destination').textContent = 'To: ' + (room || 'this direct contact');
+  const options = field('sos-options');
+  options.replaceChildren();
+  const submit = async (type) => {
+    field('sos-dialog').close();
+    sosChoice = undefined;
+    sendingChat = true;
+    updateChatActions();
+    field('error').textContent = '';
+    try {
+      if (type === 'flood' || room) {
+        if (!authenticated) throw new Error('Relay offline. SOS was not sent.');
+        const ack = await socket.timeout(5000).emitWithAck(sosEvent, { id, type, room });
+        if (!ack.ok) throw new Error(ack.error);
+      } else {
+        setOutbox([...checkInOutbox, makeDirectEnvelope(to, sosText(type))]);
+        void flushCheckIns();
+      }
+    } catch (error) { field('error').textContent = 'SOS could not be sent: ' + error.message; }
+    finally { sendingChat = false; updateChatActions(); }
+  };
+  sosChoice = startSosChoice('general', (type) => { void submit(type); });
+  for (const type of sosTypes) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = sosLabels[type] + (type === 'flood' ? ' · From ' + (source || 'set your profile level') : '');
+    button.disabled = type === 'flood' && !source;
+    button.addEventListener('click', () => sosChoice?.choose(type));
+    options.append(button);
   }
-});
+  const refresh = () => {
+    if (!sosChoice) return;
+    field('sos-countdown').textContent = 'Default “I need help” sends in ' + sosChoice.remaining() + 's unless you choose or cancel.';
+    if (sosChoice.remaining() === 0) sosChoice.choose('general');
+  };
+  refresh();
+  field('sos-dialog').showModal();
+}
+setInterval(() => {
+  if (sosChoice) {
+    field('sos-countdown').textContent = 'Default “I need help” sends in ' + sosChoice.remaining() + 's unless you choose or cancel.';
+    if (sosChoice.remaining() === 0) sosChoice.choose('general');
+  }
+}, 250);
+field('sos').addEventListener('click', () => openSos());
+field('sos-cancel').addEventListener('click', closeSos);
+field('sos-dialog').addEventListener('cancel', (event) => { event.preventDefault(); closeSos(); });
+field('sos-dialog').addEventListener('close', () => { sosChoice?.cancel(); sosChoice = undefined; });
+window.addEventListener('pagehide', () => sosChoice?.cancel());
 
 field('copy').addEventListener('click', async () => {
   try {
@@ -1126,6 +1185,14 @@ li::marker{color:var(--muted)}
 </form>
 </div>
 </main>
+<dialog id="sos-dialog" aria-labelledby="sos-title">
+<h2 id="sos-title">Send SOS</h2>
+<p id="sos-destination"></p>
+<p id="sos-countdown" role="status"></p>
+<div id="sos-options"></div>
+<p>Choosing an option sends it immediately. Flooding alerts go to all three levels.</p>
+<button type="button" id="sos-cancel">Cancel SOS</button>
+</dialog>
 <script src="/browser-chat.js" defer></script>
 </body>
 </html>`;

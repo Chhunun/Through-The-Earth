@@ -1,3 +1,7 @@
+import * as Crypto from 'expo-crypto';
+import SosChooser, { type SosRequest } from '../src/SosChooser';
+import { isSosMessage, sosText, type SosType } from '../../shared/sosTypes';
+import { sendLevelSos } from '../src/sendLevelSos';
 import { router } from 'expo-router';
 import TemperatureBar from '../src/TemperatureBar';
 import term from '../src/terminal-colors.json';
@@ -55,6 +59,8 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
   const [error, setError] = useState('');
   const [checkingIn, setCheckingIn] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sosRequest, setSosRequest] = useState<SosRequest>();
+  const sosOpen = useRef(false);
   const [accounts, setAccounts] = useState<SavedAccount[]>([]);
   const [switching, setSwitching] = useState(false);
   // Trim a pasted public key, reject our own key, and choose the visible conversation.
@@ -292,13 +298,34 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
   const canSendAlert = online && (room !== undefined || validPeer) && !sending;
   const canSend = canSendAlert && draft.trim().length > 0;
 
-  function confirmSOS() {
-    const destination = room ?? 'this direct chat';
-    Alert.alert('Send SOS?', 'Post an in-app SOS to ' + destination + '?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Send SOS', onPress: () => { void send(true); } },
-    ]);
+  function confirmSOS(contactOnly = false) {
+    if (sosOpen.current || !session.current) return;
+    const destinationRoom = contactOnly ? undefined : room;
+    const to = recipient;
+    if (!destinationRoom && !validPeer) return;
+    const expectedKey = key;
+    const currentSession = session.current;
+    const id = Crypto.randomUUID();
+    sosOpen.current = true;
+    setSosRequest({
+      id, destination: destinationRoom ?? 'this direct contact',
+      floodLevel: destinationRoom ?? profile?.level,
+      send: async (type: SosType) => {
+        sosOpen.current = false;
+        setSosRequest(undefined);
+        setSending(true);
+        setError('');
+        try {
+          if (session.current !== currentSession) throw new Error('Account changed. Open SOS again.');
+          if (type === 'flood' || destinationRoom) await sendLevelSos(id, type, destinationRoom, expectedKey);
+          else if (type === 'general') await currentSession.checkIn(to, 'help');
+          else await currentSession.send(to, sosText(type));
+        } catch (cause) { setError('SOS could not be sent: ' + String(cause)); }
+        finally { setSending(false); }
+      },
+    });
   }
+  function cancelSOS() { sosOpen.current = false; setSosRequest(undefined); }
 
   return (
       <KeyboardAvoidingView
@@ -307,6 +334,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
           keyboardVerticalOffset={0}
       >
 
+        <SosChooser request={sosRequest} cancel={cancelSOS} />
         {/* POLISH 1: Header. Start with padding, spacing, and title size. The first row holds relay status and the clock. */}
         <View className="gap-3 border-b border-term-line p-5">
           <View className="flex-row flex-wrap items-center justify-between gap-2">
@@ -432,10 +460,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
                       <Text className="font-mono text-term-text">Request a check-in</Text>
                     </Pressable>
                     <Pressable accessibilityRole="button" disabled={checkingIn} className="rounded border border-rose-500 bg-rose-900 px-2 py-2"
-                               onPress={() => Alert.alert('Send SOS?', 'Send an in-app SOS to this contact?', [
-                                 { text: 'Cancel', style: 'cancel' },
-                                 { text: 'Send SOS', onPress: () => { void checkIn('help'); } },
-                               ])}>
+                               onPress={() => confirmSOS(true)}>
                       <Text className="font-mono text-rose-100">I need help</Text>
                     </Pressable>
                   </View>
@@ -474,7 +499,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
           {/* Message-list spacing and empty states. The list scrolls to the bottom when the latest message is SOS. */}
           <FlatList<ChatItem> ref={chatList} className="flex-1"
                               onContentSizeChange={() => {
-                                if (thread.at(-1)?.text === sosMessage) chatList.current?.scrollToEnd();
+                                if (isSosMessage(thread.at(-1)?.text ?? '')) chatList.current?.scrollToEnd();
                               }} contentContainerStyle={{ padding: 16, gap: 10 }}
                               data={thread} keyExtractor={(item) => item.from + ':' + item.id}
                               ListEmptyComponent={<Text className="font-mono text-term-muted">
@@ -482,13 +507,13 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
                               </Text>}
                               renderItem={({ item }) => (
                                   // POLISH 2: Message bubbles. Change the colors, width, and padding here. Keep SOS visually distinct.
-                                  <View className={item.text === sosMessage ? 'self-stretch rounded-sm border border-rose-500 bg-rose-950 p-3'
+                                  <View className={isSosMessage(item.text) ? 'self-stretch rounded-sm border border-rose-500 bg-rose-950 p-3'
                                       : item.from === key ? 'self-end rounded-sm bg-term-active border border-term-text p-3' : 'self-start rounded-sm bg-term-field border border-term-line p-3'}>
                                     {profiles[item.from] ? <Text className="font-mono text-xs text-term-text">{profileLabel(profiles[item.from])}</Text>
-                                        : item.text === sosMessage || (room && item.from !== key) ? (
+                                        : isSosMessage(item.text) || (room && item.from !== key) ? (
                                             <Text className="font-mono text-xs text-term-dim">{item.from === key ? 'You' : item.from.slice(0, 10) + '…'}</Text>
                                         ) : null}
-                                    <Text selectable className={item.text === sosMessage ? 'font-mono font-bold text-rose-100' : 'font-mono text-term-text'}>{item.text}</Text>
+                                    <Text selectable className={isSosMessage(item.text) ? 'font-mono font-bold text-rose-100' : 'font-mono text-term-text'}>{item.text}</Text>
                                   </View>
                               )} />
           {/* POLISH 3: Composer. Tune spacing, touch targets, and contrast here. Test with the iPhone keyboard open. */}
@@ -499,7 +524,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
             {error || relayError ? <Text className="font-mono text-rose-300">{error || relayError}</Text> : null}
             <View className="flex-row items-center gap-2">
               <Pressable accessibilityRole="button" accessibilityLabel="Send SOS" disabled={!canSendAlert}
-                         className="rounded-sm border border-rose-500 bg-rose-900 p-3 disabled:opacity-50" onPress={confirmSOS}>
+                         className="rounded-sm border border-rose-500 bg-rose-900 p-3 disabled:opacity-50" onPress={() => confirmSOS()}>
                 <Text className="font-mono font-bold text-rose-100">SOS</Text>
               </Pressable>
               <TextInput accessibilityLabel="Message" value={draft} onChangeText={setDraft}

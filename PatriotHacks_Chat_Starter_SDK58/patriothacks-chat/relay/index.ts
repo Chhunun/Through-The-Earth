@@ -10,6 +10,8 @@ import { Server } from 'socket.io';
 import nacl from 'tweetnacl';
 import { events, isEnvelope, isPublicKey, isRoom, incidentEvent, levelPresenceEvent, levelTemperatureEvent, severeReportsEvent, parseChatProfile, type LevelPresence, mapEvents, isWalkPath, type WalkPath, profileEvents, reportEvents, roomEvents, type LevelReportResult, type Ack, type Envelope, type Room, type RoomMessage } from '@patriot/protocol';
 
+import { registerSos } from './sos.js';
+
 const app = express();
 app.get('/health', (_request, response) => response.json({ ok: true }));
 const server = createServer(app);
@@ -245,6 +247,8 @@ io.on('connection', (socket) => {
       reply(roomHistory.get(requested) ?? []);
     }
   });
+
+  registerSos(io, socket, () => authenticated, () => profiles[key]?.level, roomHistory);
 
   socket.on(roomEvents.send, (requested: unknown, body: unknown, reply: (ack: Ack) => void) => {
     if (typeof reply !== 'function') return;
