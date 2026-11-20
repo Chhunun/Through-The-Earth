@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react';
+import term from './terminal-colors.json';
 import Svg, { Path } from 'react-native-svg';
 import type { MapPoint, WalkPath } from '@patriot/protocol';
 import type { MergedWalkSegment } from './mergeWalkPaths';
@@ -54,9 +55,9 @@ export default memo(function MapPathLayer({ segments, draft, highlight, center, 
   return <Svg pointerEvents="none" width={width} height={height}
     style={{ position: 'absolute', left: 0, top: 0 }}
     viewBox={`${x - viewWidth / 2} ${y - viewHeight / 2} ${viewWidth} ${viewHeight}`}>
-    <Drawing data={recorded.normal} color="#9ca3af" strokeWidth={3 / scale} />
-    <Drawing data={recorded.repeated} color="#d1d5db" strokeWidth={3 / scale} />
+    <Drawing data={recorded.normal} color={term.muted} strokeWidth={3 / scale} />
+    <Drawing data={recorded.repeated} color={term.text} strokeWidth={3 / scale} />
     <Drawing data={selected} color="#fbbf24" strokeWidth={5 / scale} />
-    <Drawing data={live} color="#38bdf8" strokeWidth={3 / scale} />
+    <Drawing data={live} color={term.glow} strokeWidth={3 / scale} />
   </Svg>;
 });

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import term from './terminal-colors.json';
 import { Animated, PanResponder, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -65,10 +66,10 @@ export default function MapJoystick({ move, interaction }: Props) {
   return (
     <View style={{ position: 'absolute', right: 16, bottom: insets.bottom + 12,
       alignItems: 'center', zIndex: 20, elevation: 8 }}>
-      <Text style={{ color: '#fde68a', fontSize: 10, marginBottom: 5,
-        backgroundColor: '#020617', paddingHorizontal: 6 }}>TEST WALK</Text>
+      <Text className="font-mono" style={{ color: '#fde68a', fontSize: 10, marginBottom: 5,
+        backgroundColor: term.bg, paddingHorizontal: 6 }}>TEST WALK</Text>
       <View {...responder.panHandlers} accessibilityLabel="Test walk joystick. Drag to move."
-        style={{ width: 104, height: 104, borderRadius: 52, backgroundColor: '#1e293b',
+        style={{ width: 104, height: 104, borderRadius: 52, backgroundColor: term.field,
           borderWidth: 1, borderColor: '#fbbf24', alignItems: 'center', justifyContent: 'center' }}>
         <Animated.View pointerEvents="none" style={{ width: 36, height: 36, borderRadius: 18,
           backgroundColor: '#fbbf24', transform: knob.getTranslateTransform() }} />
