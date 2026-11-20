@@ -27,7 +27,6 @@ import { mapConnection } from '../src/mapConnection';
 import { loadMap, saveMapPath, queueMapShare } from '../src/mapStorage';
 
 export default function MapScreen() {
-  const ownKey = useChat((state) => state.key);
   const [pingPending, setPingPending] = useState(false);
   const ownLevel = useChat((state) => state.profiles[state.key]?.level);
   const deletedPaths = useRef(new Set<string>());
