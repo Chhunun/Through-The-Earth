@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import TemperatureBar from '../src/TemperatureBar';
+import term from '../src/terminal-colors.json';
 // Mobile UI polish: start with POLISH 1 (header), then POLISH 2 (bubbles),
 // then POLISH 3 (composer). Save after each edit and check in Expo Go.
 // Change className values first. Leave connection and send logic alone for visual edits.
@@ -8,6 +9,7 @@ import { checkInStatus, incidentLabels, incidentWindowMinutes, type CheckIn } fr
 import SavedContacts from '../src/SavedContacts';
 import ProfileEditor from '../src/ProfileEditor';
 import Announcements from '../src/Announcements';
+import DailyLog from '../src/DailyLog';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
@@ -18,6 +20,10 @@ import { addAccount, switchAccount } from '../src/crypto';
 // The list only needs these fields from either a room message or a direct message.
 type ChatItem = Pick<RoomMessage, 'id' | 'from' | 'text'>;
 
+// Tabs shown under a level. Daily log is personal, so it is the same on every level.
+const levelTabs = [['chat', 'Chat'], ['status', 'Status'], ['log', 'Daily log']] as const;
+type LevelTab = (typeof levelTabs)[number][0];
+
 export default function ChatRoute() {
   // Bumping the generation remounts ChatScreen, which starts a new relay session for the active account.
   const [account, setAccount] = useState({ generation: 0, autoSignIn: false });
@@ -26,7 +32,7 @@ export default function ChatRoute() {
   }, []);
   // Keep both sign-in and chat clear of the status bar and home indicator.
   return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#020617' }} edges={['top', 'right', 'bottom', 'left']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: term.bg }} edges={['top', 'right', 'bottom', 'left']}>
         <ChatScreen key={account.generation} autoSignIn={account.autoSignIn} restart={restart} />
       </SafeAreaView>
   );
@@ -40,7 +46,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
   const chatList = useRef<FlatList<ChatItem>>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
-  const [announcements, setAnnouncements] = useState(false);
+  const [tab, setTab] = useState<LevelTab>('chat');
   const [editingProfile, setEditingProfile] = useState(false);
   // A room value selects a level. An undefined room means Direct chat.
   const [room, setRoom] = useState<Room>();
@@ -186,7 +192,7 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
     Keyboard.dismiss();
     setChannelsOpen(false);
     setEditingProfile(false);
-    setAnnouncements(false);
+    setTab('chat');
     setDraft('');
     setError('');
     setSignedIn(false);
@@ -195,31 +201,31 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
   // Sign-in is its own layout. Edit the card classes below to change its appearance.
   if (!signedIn) {
     return (
-        <KeyboardAvoidingView className="flex-1 bg-slate-950"
+        <KeyboardAvoidingView className="flex-1 bg-term-bg"
                               behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                               keyboardVerticalOffset={0}>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}>
-            <View className="gap-3 rounded-2xl bg-zinc-900 p-5">
+            <View className="gap-3 rounded bg-term-panel border border-term-line p-5">
               <View className="flex-row flex-wrap justify-between gap-3">
-                <Text accessibilityRole="header" className="shrink text-xl font-semibold text-white">Sign in to Through The Earth</Text>
+                <Text accessibilityRole="header" className="font-mono uppercase tracking-widest shrink text-xl font-semibold text-term-text">Sign in to Through The Earth</Text>
                 <LocalClock />
               </View>
               {!profile && (!online || !profilesReady) ? (
-                  <Text accessibilityLiveRegion="polite" className="text-zinc-300">
+                  <Text accessibilityLiveRegion="polite" className="font-mono text-term-dim">
                     {error || relayError || (online ? 'Loading your profile…' : 'Connecting to the relay…')}
                   </Text>
               ) : profile ? (
                   <>
-                    <Text className="text-zinc-200">{profileLabel(profile)}{online ? '' : ' · Relay offline'}</Text>
+                    <Text className="font-mono text-term-text">{profileLabel(profile)}{online ? '' : ' · Relay offline'}</Text>
                     <View className="flex-row items-center gap-3">
-                      <Pressable accessibilityRole="button" className="rounded-lg bg-sky-800 px-4 py-3"
+                      <Pressable accessibilityRole="button" className="rounded-sm bg-term-active border border-term-text px-4 py-3"
                                  onPress={() => enterChat(profile.level)}>
-                        <Text className="font-semibold text-white">Sign in</Text>
+                        <Text className="font-mono font-semibold text-term-text">Sign in</Text>
                       </Pressable>
                       <Pressable accessibilityRole="button" accessibilityLabel={'Remove ' + profile.name + ' from this device'}
                                  disabled={switching} className="px-2 py-3 disabled:opacity-50"
                                  onPress={() => confirmRemove({ key, profile })}>
-                        <Text className="text-rose-300">Remove</Text>
+                        <Text className="font-mono text-rose-300">Remove</Text>
                       </Pressable>
                     </View>
                   </>
@@ -232,29 +238,29 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
             </View>
             {/* Other accounts on this device. Each account has its own key, contacts and messages. */}
             {key ? (
-                <View className="mt-3 gap-2 rounded-2xl bg-zinc-900 p-5">
-                  <Text accessibilityRole="header" className="font-semibold text-white">Sign in to another account</Text>
+                <View className="mt-3 gap-2 rounded bg-term-panel border border-term-line p-5">
+                  <Text accessibilityRole="header" className="font-mono uppercase tracking-widest font-semibold text-term-text">Sign in to another account</Text>
                   {accounts.filter((account) => account.key !== key).map((account) => {
                     const known = profiles[account.key] ?? account.profile;
                     const label = known ? profileLabel(known) : account.key.slice(0, 10) + '…';
                     return (
                         <View key={account.key} className="flex-row items-center gap-2">
                           <Pressable accessibilityRole="button" disabled={switching}
-                                     className="min-w-0 flex-1 rounded-lg bg-zinc-800 px-4 py-3 disabled:opacity-50"
+                                     className="min-w-0 flex-1 rounded-sm bg-term-field border border-term-line px-4 py-3 disabled:opacity-50"
                                      onPress={() => { void changeAccount(() => switchAccount(account.key), true); }}>
-                            <Text numberOfLines={1} className="text-white">{label}</Text>
+                            <Text numberOfLines={1} className="font-mono text-term-text">{label}</Text>
                           </Pressable>
                           <Pressable accessibilityRole="button" accessibilityLabel={'Remove ' + label + ' from this device'}
                                      disabled={switching} className="px-2 py-3 disabled:opacity-50"
                                      onPress={() => confirmRemove(account)}>
-                            <Text className="text-rose-300">Remove</Text>
+                            <Text className="font-mono text-rose-300">Remove</Text>
                           </Pressable>
                         </View>
                     );
                   })}
                   <Pressable accessibilityRole="button" disabled={switching} className="self-start py-2 disabled:opacity-50"
                              onPress={() => { void changeAccount(addAccount, false); }}>
-                    <Text className="font-semibold text-sky-400">{switching ? 'Switching…' : '+ Add another account'}</Text>
+                    <Text className="font-mono font-semibold text-term-glow">{switching ? 'Switching…' : '+ Add another account'}</Text>
                   </Pressable>
                 </View>
             ) : null}
@@ -296,42 +302,42 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
 
   return (
       <KeyboardAvoidingView
-          className="flex-1 bg-slate-950"
+          className="flex-1 bg-term-bg"
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={0}
       >
 
         {/* POLISH 1: Header. Start with padding, spacing, and title size. The first row holds relay status and the clock. */}
-        <View className="gap-3 border-b border-slate-800 p-5">
+        <View className="gap-3 border-b border-term-line p-5">
           <View className="flex-row flex-wrap items-center justify-between gap-2">
-            <Text className="text-sm text-slate-300">{online ? 'Relay connected' : 'Relay offline'}</Text>
+            <Text className="font-mono text-sm text-term-dim">{online ? 'Relay connected' : 'Relay offline'}</Text>
             <LocalClock />
           </View>
           {/* Channel navigation stays on the left. Tap the profile on the right to edit it. */}
           <View className="flex-row items-center justify-between gap-3">
             <Pressable accessibilityRole="button" accessibilityLabel="Open channels"
-                       hitSlop={5} className="h-9 justify-center rounded-lg bg-zinc-800 px-2"
+                       hitSlop={5} className="h-9 justify-center rounded-sm bg-term-field border border-term-line px-2"
                        onPress={() => {
                          Keyboard.dismiss();
                          setChannelsOpen(true);
                        }}>
-              <Text className="font-semibold text-zinc-100">☰ Channels</Text>
+              <Text className="font-mono font-semibold text-term-text">☰ Channels</Text>
             </Pressable>
             {/* Sign out and profile share the right side. The profile name truncates first on narrow screens. */}
             <View className="min-w-0 flex-1 flex-row items-center justify-end gap-2">
               <Pressable accessibilityRole="button" onPress={signOut}
-                         hitSlop={5} className="h-9 justify-center rounded-lg bg-zinc-800 px-2">
-                <Text className="text-xs font-semibold text-zinc-100">Sign out</Text>
+                         hitSlop={5} className="h-9 justify-center rounded-sm bg-term-field border border-term-line px-2">
+                <Text className="font-mono text-xs font-semibold text-term-text">Sign out</Text>
               </Pressable>
               <Pressable accessibilityRole="button" accessibilityLabel="Edit chat profile"
                          accessibilityValue={{ text: profile ? profileLabel(profile) : undefined }}
                          accessibilityState={{ expanded: editingProfile }}
                          onPress={() => setEditingProfile((open) => !open)}
-                         hitSlop={5} className="h-9 min-w-0 shrink items-end justify-center rounded-lg bg-zinc-800 px-2">
-                <Text numberOfLines={1} className="max-w-full text-right text-xs font-semibold leading-4 text-zinc-100">
+                         hitSlop={5} className="h-9 min-w-0 shrink items-end justify-center rounded-sm bg-term-field border border-term-line px-2">
+                <Text numberOfLines={1} className="font-mono max-w-full text-right text-xs font-semibold leading-4 text-term-text">
                   {profile?.name ?? 'Set up profile'}
                 </Text>
-                {profile ? <Text numberOfLines={1} className="text-right text-xs leading-4 text-zinc-300">{profile.level}</Text> : null}
+                {profile ? <Text numberOfLines={1} className="font-mono text-right text-xs leading-4 text-term-dim">{profile.level}</Text> : null}
               </Pressable>
             </View>
           </View>
@@ -347,32 +353,32 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
           <Modal visible={channelsOpen} transparent animationType="fade"
                  onRequestClose={() => setChannelsOpen(false)}>
             <View className="flex-1 flex-row bg-black/60">
-              <SafeAreaView style={{ width: '76%', maxWidth: 300, backgroundColor: '#18181b' }}
+              <SafeAreaView style={{ width: '76%', maxWidth: 300, backgroundColor: term.panel, borderRightWidth: 1, borderColor: term.line }}
                             accessibilityViewIsModal>
                 <View className="flex-row items-center justify-between px-4 py-2">
-                  <Text className="font-semibold text-zinc-100">Channels</Text>
+                  <Text className="font-mono font-semibold text-term-text">Channels</Text>
                   <Pressable accessibilityRole="button" accessibilityLabel="Close channels"
                              className="p-3" onPress={() => setChannelsOpen(false)}>
-                    <Text className="text-lg text-zinc-100">×</Text>
+                    <Text className="font-mono text-lg text-term-text">×</Text>
                   </Pressable>
                 </View>
                 <View className="gap-1 px-2">
                   {([...rooms, undefined] as const).map((option) => (
                       <Pressable key={option ?? 'direct'} accessibilityRole="button"
                                  accessibilityState={{ selected: room === option }}
-                                 className={room === option ? 'rounded-md bg-zinc-700 px-3 py-3' : 'rounded-md px-3 py-3'}
+                                 className={room === option ? 'rounded-sm bg-term-active border border-term-text px-3 py-3' : 'rounded-sm px-3 py-3'}
                                  onPress={() => {
                                    setChannelsOpen(false);
                                    if (room === option) return;
                                    setRoom(option);
-                                   setAnnouncements(false);
+                                   setTab('chat');
                                    setDraft('');
                                    setError('');
                                  }}>
-                        <Text className={room === option ? 'font-semibold text-white' : 'text-zinc-400'}>
+                        <Text className={room === option ? 'font-mono font-semibold text-term-text' : 'font-mono text-term-muted'}>
                           {option ?? 'Direct chat'}
                         </Text>
-                          {option ? <Text className="text-xs text-zinc-400">
+                          {option ? <Text className="font-mono text-xs text-term-muted">
                             {online && presence ? presence[option] + ' online' : 'Online count unavailable'}
                           </Text> : null}
                       </Pressable>
@@ -384,53 +390,53 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
           </Modal>
           {/* Level navigation. This is where a future Map tab would sit alongside Chat and Status. */}
           {room ? <View className="flex-row gap-2">
-            {[false, true].map((value) => (
-                <Pressable key={String(value)} accessibilityRole="tab"
-                           accessibilityState={{ selected: value === announcements }}
-                           className={value === announcements ? 'rounded-md bg-zinc-700 px-3 py-2' : 'rounded-md px-3 py-2'}
-                           onPress={() => setAnnouncements(value)}>
-                  <Text className="text-white">{value ? 'Status' : 'Chat'}</Text>
+            {levelTabs.map(([value, label]) => (
+                <Pressable key={value} accessibilityRole="tab"
+                           accessibilityState={{ selected: value === tab }}
+                           className={value === tab ? 'rounded-sm bg-term-active border border-term-text px-3 py-2' : 'rounded-sm px-3 py-2'}
+                           onPress={() => setTab(value)}>
+                  <Text className="font-mono text-term-text">{label}</Text>
                 </Pressable>
             ))}
           </View> : null}
           {/* Room visibility note or Direct chat controls. */}
           {room ? <TemperatureBar reading={temperatures[room]} online={online} /> : null}
-          {room ? !announcements && <Text className="text-xs text-slate-300">
+          {room ? tab === 'chat' && <Text className="font-mono text-xs text-term-dim">
             Open demo room · Messages are visible to the relay.
           </Text> : <>
             {/* Direct chat: public key, sharing, recipient input, and saved contacts. */}
-            <Text selectable className="text-xs text-slate-400">{key || 'Loading device identity…'}</Text>
+            <Text selectable className="font-mono text-xs text-term-muted">{key || 'Loading device identity…'}</Text>
             {key ? <Pressable accessibilityRole="button" onPress={() => Share.share({ message: key }).catch((cause) => setError(String(cause)))}>
-              <Text className="font-semibold text-sky-400">Share my public key</Text>
+              <Text className="font-mono font-semibold text-term-glow">Share my public key</Text>
             </Pressable> : null}
             <TextInput accessibilityLabel="Recipient public key" autoCapitalize="none" autoCorrect={false}
-                       placeholder="Paste recipient public key" placeholderTextColor="#94a3b8"
-                       value={peer} onChangeText={chooseContact} className="rounded-lg bg-slate-800 p-3 text-white" />
+                       placeholder="Paste recipient public key" placeholderTextColor={term.muted}
+                       value={peer} onChangeText={chooseContact} className="font-mono rounded-sm bg-term-field border border-term-line p-3 text-term-text" />
             <SavedContacts owner={key} recipient={recipient} profiles={profiles} select={chooseContact} />
             {/* Direct chat: last received check-in, queued count, and quick actions. */}
             {validPeer ? (
-                <View className="gap-2 rounded-lg bg-zinc-900 p-3">
-                  <Text className="text-zinc-100">{latestCheckIn
+                <View className="gap-2 rounded-sm bg-term-panel border border-term-line p-3">
+                  <Text className="font-mono text-term-text">{latestCheckIn
                       ? 'Last check-in · ' + checkInStatus(latestCheckIn.text) + ' · ' + new Date(latestCheckIn.sentAt).toLocaleString()
                       : 'No check-in received from this contact.'}</Text>
-                  {pendingCount ? <Text className="text-amber-300">
+                  {pendingCount ? <Text className="font-mono text-amber-300">
                     {pendingCount} {pendingCount === 1 ? 'check-in queued' : 'check-ins queued'} · {online ? 'Waiting to send' : 'Waiting for connection'}
                   </Text> : null}
                   <View className="flex-row flex-wrap gap-2">
-                    <Pressable accessibilityRole="button" disabled={checkingIn} className="rounded bg-sky-800 px-2 py-2"
+                    <Pressable accessibilityRole="button" disabled={checkingIn} className="rounded bg-term-active border border-term-text px-2 py-2"
                                onPress={() => { void checkIn('okay'); }}>
-                      <Text className="text-white">I’m okay</Text>
+                      <Text className="font-mono text-term-text">I’m okay</Text>
                     </Pressable>
-                    <Pressable accessibilityRole="button" disabled={checkingIn} className="rounded bg-zinc-800 px-2 py-2"
+                    <Pressable accessibilityRole="button" disabled={checkingIn} className="rounded bg-term-field border border-term-line px-2 py-2"
                                onPress={() => { void checkIn('request'); }}>
-                      <Text className="text-white">Request a check-in</Text>
+                      <Text className="font-mono text-term-text">Request a check-in</Text>
                     </Pressable>
-                    <Pressable accessibilityRole="button" disabled={checkingIn} className="rounded bg-rose-900 px-2 py-2"
+                    <Pressable accessibilityRole="button" disabled={checkingIn} className="rounded border border-rose-500 bg-rose-900 px-2 py-2"
                                onPress={() => Alert.alert('Send SOS?', 'Send an in-app SOS to this contact?', [
                                  { text: 'Cancel', style: 'cancel' },
                                  { text: 'Send SOS', onPress: () => { void checkIn('help'); } },
                                ])}>
-                      <Text className="text-white">I need help</Text>
+                      <Text className="font-mono text-rose-100">I need help</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -438,69 +444,70 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
           </>}
         </View>
         {/* Resident-report warnings belong above level chat. Keep counts and timestamps readable on small screens. */}
-        {room && !announcements && severeReports[room]?.length ? (
-          <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-lg border border-rose-500 bg-rose-950 px-3 py-2">
-            <Text className="font-bold text-rose-100">Severe · Resident reports</Text>
-            {!online ? <Text className="text-xs text-rose-200">Relay offline · Showing last received warning</Text> : null}
+        {room && tab === 'chat' && severeReports[room]?.length ? (
+          <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-sm border border-rose-500 bg-rose-950 px-3 py-2">
+            <Text className="font-mono font-bold text-rose-100">Severe · Resident reports</Text>
+            {!online ? <Text className="font-mono text-xs text-rose-200">Relay offline · Showing last received warning</Text> : null}
             <ScrollView style={{ maxHeight: 92 }} nestedScrollEnabled>
               {severeReports[room].map(({ question, answer, count, latestAt }) => (
-                <Text key={question} className="mb-1 text-xs text-rose-100">
+                <Text key={question} className="font-mono mb-1 text-xs text-rose-100">
                   {question}: {answer} · {count} {count === 1 ? 'report' : 'reports'} · {new Date(latestAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                 </Text>
               ))}
             </ScrollView>
           </View>
         ) : null}
-        {room && !announcements && incidents[room]?.length ? (
-            <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-lg border border-amber-700 bg-amber-950 px-3 py-2">
-              <Text className="font-semibold text-amber-100">Early warning · Resident reports</Text>
-              {!online ? <Text className="text-xs text-amber-200">Relay offline · Showing last received warning</Text> : null}
+        {room && tab === 'chat' && incidents[room]?.length ? (
+            <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-sm border border-amber-700 bg-amber-950 px-3 py-2">
+              <Text className="font-mono font-semibold text-amber-100">Early warning · Resident reports</Text>
+              {!online ? <Text className="font-mono text-xs text-amber-200">Relay offline · Showing last received warning</Text> : null}
               {incidents[room].map(({ issue, count, latestAt }) => (
-                  <Text key={issue} className="text-xs text-amber-100">
+                  <Text key={issue} className="font-mono text-xs text-amber-100">
                     {incidentLabels[issue]} · {count} reports in the past {incidentWindowMinutes} min · Latest {new Date(latestAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </Text>
               ))}
             </View>
         ) : null}
-        {/* Status renders its own component. Switching levels resets its local form state. */}
-        {room && announcements ? <Announcements key={room} online={online} ownKey={key} profiles={profiles} load={loadReport} /> : <>
+        {/* Status and Daily log render their own components. Switching levels resets Status form state. */}
+        {room && tab === 'status' ? <Announcements key={room} online={online} ownKey={key} profiles={profiles} load={loadReport} />
+          : room && tab === 'log' ? <DailyLog key={key} ownKey={key} /> : <>
           {/* Message-list spacing and empty states. The list scrolls to the bottom when the latest message is SOS. */}
           <FlatList<ChatItem> ref={chatList} className="flex-1"
                               onContentSizeChange={() => {
                                 if (thread.at(-1)?.text === sosMessage) chatList.current?.scrollToEnd();
                               }} contentContainerStyle={{ padding: 16, gap: 10 }}
                               data={thread} keyExtractor={(item) => item.from + ':' + item.id}
-                              ListEmptyComponent={<Text className="text-slate-400">
+                              ListEmptyComponent={<Text className="font-mono text-term-muted">
                                 {room ? 'No messages in this room yet.' : validPeer ? 'No messages in this chat yet.' : 'Exchange public keys to start a chat.'}
                               </Text>}
                               renderItem={({ item }) => (
                                   // POLISH 2: Message bubbles. Change the colors, width, and padding here. Keep SOS visually distinct.
-                                  <View className={item.text === sosMessage ? 'self-stretch rounded-lg border border-rose-500 bg-rose-950 p-3'
-                                      : item.from === key ? 'self-end rounded-lg bg-sky-800 p-3' : 'self-start rounded-lg bg-slate-800 p-3'}>
-                                    {profiles[item.from] ? <Text className="text-xs text-slate-200">{profileLabel(profiles[item.from])}</Text>
+                                  <View className={item.text === sosMessage ? 'self-stretch rounded-sm border border-rose-500 bg-rose-950 p-3'
+                                      : item.from === key ? 'self-end rounded-sm bg-term-active border border-term-text p-3' : 'self-start rounded-sm bg-term-field border border-term-line p-3'}>
+                                    {profiles[item.from] ? <Text className="font-mono text-xs text-term-text">{profileLabel(profiles[item.from])}</Text>
                                         : item.text === sosMessage || (room && item.from !== key) ? (
-                                            <Text className="text-xs text-slate-300">{item.from === key ? 'You' : item.from.slice(0, 10) + '…'}</Text>
+                                            <Text className="font-mono text-xs text-term-dim">{item.from === key ? 'You' : item.from.slice(0, 10) + '…'}</Text>
                                         ) : null}
-                                    <Text selectable className={item.text === sosMessage ? 'font-bold text-rose-100' : 'text-white'}>{item.text}</Text>
+                                    <Text selectable className={item.text === sosMessage ? 'font-mono font-bold text-rose-100' : 'font-mono text-term-text'}>{item.text}</Text>
                                   </View>
                               )} />
           {/* POLISH 3: Composer. Tune spacing, touch targets, and contrast here. Test with the iPhone keyboard open. */}
-          <View className="gap-2 border-t border-slate-800 p-4">
-            <Text accessibilityRole="header" className="text-sm font-semibold text-zinc-100">
+          <View className="gap-2 border-t border-term-line p-4">
+            <Text accessibilityRole="header" className="font-mono uppercase tracking-widest text-sm font-semibold text-term-text">
               {room ? room + (online && presence ? ' · ' + presence[room] + ' online' : '') : 'Direct chat'}
             </Text>
-            {error || relayError ? <Text className="text-rose-300">{error || relayError}</Text> : null}
+            {error || relayError ? <Text className="font-mono text-rose-300">{error || relayError}</Text> : null}
             <View className="flex-row items-center gap-2">
               <Pressable accessibilityRole="button" accessibilityLabel="Send SOS" disabled={!canSendAlert}
-                         className="rounded-lg bg-rose-900 p-3 disabled:opacity-50" onPress={confirmSOS}>
-                <Text className="font-bold text-white">SOS</Text>
+                         className="rounded-sm border border-rose-500 bg-rose-900 p-3 disabled:opacity-50" onPress={confirmSOS}>
+                <Text className="font-mono font-bold text-rose-100">SOS</Text>
               </Pressable>
               <TextInput accessibilityLabel="Message" value={draft} onChangeText={setDraft}
-                         maxLength={2000} placeholder="Message" placeholderTextColor="#94a3b8"
-                         className="flex-1 rounded-lg bg-slate-800 p-3 text-white" />
+                         maxLength={2000} placeholder="Message" placeholderTextColor={term.muted}
+                         className="font-mono flex-1 rounded-sm bg-term-field border border-term-line p-3 text-term-text" />
               <Pressable accessibilityRole="button" disabled={!canSend} onPress={() => send()}
-                         className={canSend ? 'rounded-lg bg-sky-400 p-3' : 'rounded-lg bg-slate-500 p-3'}>
-                <Text className="font-semibold text-slate-950">{sending ? 'Sending…' : 'Send'}</Text>
+                         className={canSend ? 'rounded-sm bg-term-text border border-term-text p-3' : 'rounded-sm bg-term-field border border-term-line p-3'}>
+                <Text className={canSend ? 'font-mono font-semibold text-term-bg' : 'font-mono font-semibold text-term-muted'}>{sending ? 'Sending…' : 'Send'}</Text>
               </Pressable>
             </View>
           </View>

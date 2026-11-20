@@ -104,7 +104,8 @@ export function parseLevelReport(answers: ReportAnswers, temperature: string): L
   return report;
 }
 
-const responseColors = ['#60a5fa', '#fbbf24', '#f87171', '#a78bfa'];
+// Chart colors follow choice order (least to most severe): terminal green through amber to red.
+const responseColors = ['#6bff8f', '#d4e157', '#ffa040', '#ff5f5f'];
 
 export function reportPie(counts: readonly number[]) {
   const total = counts.reduce((sum, count) => sum + count, 0);
@@ -174,6 +175,48 @@ export interface LevelIncident {
 }
 
 export type IncidentSnapshot = Record<Room, LevelIncident[]>;
+
+// Daily log: a private record of the user's own day. It stays on the device and is never sent to the relay.
+// Like reportQuestions, choices run from best to worst.
+export const dailyLogQuestions = [
+  { id: 'sleep', label: 'Sleep last night', choices: ['8+ hours', '6–8 hours', '4–6 hours', 'Under 4 hours'] },
+  { id: 'mood', label: 'Mood', choices: ['Good', 'Okay', 'Low', 'Very low'] },
+  { id: 'body', label: 'Body health', choices: ['Feeling well', 'Tired', 'Aches or pain', 'Sick'] },
+  { id: 'food', label: 'Meals eaten today', choices: ['3 or more', '2', '1', 'None'] },
+] as const;
+export const dailyLogNotesLimit = 500;
+
+export type DailyLogAnswers = Partial<Record<(typeof dailyLogQuestions)[number]['id'], string>>;
+export interface DailyLogEntry {
+  day: string; // Local date as YYYY-MM-DD
+  answers: DailyLogAnswers;
+  notes: string;
+  savedAt: number;
+}
+
+// The local calendar day, so an entry made at 11 pm belongs to that day, not the next one in UTC.
+export function dailyLogDay(now = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+}
+
+export function dailyLogDayLabel(day: string) {
+  const [year, month, date] = day.split('-').map(Number);
+  return new Date(year, month - 1, date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+// Validates an entry read back from device storage. Unknown questions and choices are dropped.
+export function parseDailyLogEntry(value: unknown): DailyLogEntry | undefined {
+  if (!value || typeof value !== 'object') return;
+  const { day, answers, notes, savedAt } = value as Record<string, unknown>;
+  if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day) || typeof savedAt !== 'number') return;
+  const parsed: DailyLogAnswers = {};
+  for (const { id, choices } of dailyLogQuestions) {
+    const answer = (answers as Record<string, unknown> | undefined)?.[id];
+    if (typeof answer === 'string' && (choices as readonly string[]).includes(answer)) parsed[id] = answer;
+  }
+  return { day, answers: parsed, notes: typeof notes === 'string' ? notes.slice(0, dailyLogNotesLimit) : '', savedAt };
+}
 
 export function localClock(now = new Date()) {
   return {

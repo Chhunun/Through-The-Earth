@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import term from './terminal-colors.json';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { parseChatProfile, rooms, type ChatProfile, type Room } from '@patriot/protocol';
 
@@ -32,29 +33,29 @@ export default function ProfileEditor({ profile, online, save, close, submitLabe
 
   return (
     <View className="gap-2">
-      <TextInput accessibilityLabel="Display name" placeholder="Display name" placeholderTextColor="#a1a1aa"
+      <TextInput accessibilityLabel="Display name" placeholder="Display name" placeholderTextColor={term.muted}
         autoCapitalize="words" maxLength={40} value={name} onChangeText={setName}
-        className="rounded-lg bg-zinc-800 p-3 text-white" />
-      <Text className="text-zinc-300">Home level</Text>
+        className="font-mono rounded-sm bg-term-field border border-term-line p-3 text-term-text" />
+      <Text className="font-mono text-term-dim">Home level</Text>
       <View className="flex-row flex-wrap gap-2">
         {rooms.map((option) => (
           <Pressable key={option} accessibilityRole="button" accessibilityState={{ selected: level === option }}
-            className={level === option ? 'rounded-md bg-sky-800 p-2' : 'rounded-md bg-zinc-800 p-2'}
+            className={level === option ? 'rounded-sm bg-term-active border border-term-text p-2' : 'rounded-sm bg-term-field border border-term-line p-2'}
             onPress={() => setLevel(option)}>
-            <Text className="text-white">{option}</Text>
+            <Text className="font-mono text-term-text">{option}</Text>
           </Pressable>
         ))}
       </View>
       <View className="flex-row gap-2">
         <Pressable accessibilityRole="button" disabled={busy || !online || !name.trim() || !level}
-          className="rounded-md bg-sky-800 p-2 disabled:opacity-50" onPress={submit}>
-          <Text className="font-semibold text-white">{busy ? 'Saving…' : submitLabel}</Text>
+          className="rounded-sm bg-term-active border border-term-text p-2 disabled:opacity-50" onPress={submit}>
+          <Text className="font-mono font-semibold text-term-text">{busy ? 'Saving…' : submitLabel}</Text>
         </Pressable>
         {close ? <Pressable accessibilityRole="button" disabled={busy} className="p-2" onPress={close}>
-          <Text className="text-white">Cancel</Text>
+          <Text className="font-mono text-term-text">Cancel</Text>
         </Pressable> : null}
       </View>
-      {error ? <Text className="text-rose-300">{error}</Text> : null}
+      {error ? <Text className="font-mono text-rose-300">{error}</Text> : null}
     </View>
   );
 }

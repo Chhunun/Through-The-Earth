@@ -1,11 +1,12 @@
 import { openDatabaseAsync } from 'expo-sqlite';
-import type { Envelope } from '@patriot/protocol';
+import { parseDailyLogEntry, type DailyLogEntry, type Envelope } from '@patriot/protocol';
 
 async function openHistory() {
   const db = await openDatabaseAsync('patriot-chat.db');
   await db.execAsync('CREATE TABLE IF NOT EXISTS messages (sender TEXT, id TEXT, recipient TEXT, created INTEGER, envelope TEXT NOT NULL, PRIMARY KEY (sender, id))');
   await db.execAsync('CREATE TABLE IF NOT EXISTS contacts (owner TEXT NOT NULL, peer TEXT NOT NULL, PRIMARY KEY (owner, peer))');
   await db.execAsync('CREATE TABLE IF NOT EXISTS check_in_outbox (owner TEXT NOT NULL, id TEXT NOT NULL, envelope TEXT NOT NULL, PRIMARY KEY (owner, id))');
+  await db.execAsync('CREATE TABLE IF NOT EXISTS daily_log (owner TEXT NOT NULL, day TEXT NOT NULL, entry TEXT NOT NULL, PRIMARY KEY (owner, day))');
   return db;
 }
 
@@ -81,4 +82,27 @@ export async function forgetOwner(owner: string, keep: string[]) {
   );
   await db.runAsync('DELETE FROM contacts WHERE owner = ?', owner);
   await db.runAsync('DELETE FROM check_in_outbox WHERE owner = ?', owner);
+  await db.runAsync('DELETE FROM daily_log WHERE owner = ?', owner);
+}
+
+// Daily log entries for one account, newest day first. Only one entry is kept per day.
+export async function dailyLog(owner: string): Promise<DailyLogEntry[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{ entry: string }>(
+    'SELECT entry FROM daily_log WHERE owner = ? ORDER BY day DESC', owner,
+  );
+  return rows.flatMap(({ entry }) => {
+    try {
+      const parsed = parseDailyLogEntry(JSON.parse(entry));
+      return parsed ? [parsed] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+export async function saveDailyLog(owner: string, entry: DailyLogEntry) {
+  const db = await getDatabase();
+  await db.runAsync('INSERT OR REPLACE INTO daily_log (owner, day, entry) VALUES (?, ?, ?)',
+    owner, entry.day, JSON.stringify(entry));
 }

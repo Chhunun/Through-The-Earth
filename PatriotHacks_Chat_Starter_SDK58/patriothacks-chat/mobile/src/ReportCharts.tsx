@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import term from './terminal-colors.json';
 import { reportPie, reportQuestions, type LevelReportSummary } from '@patriot/protocol';
 
 const diameter = 96;
@@ -7,14 +8,14 @@ const radius = diameter / 2;
 export default function ReportCharts({ summary }: { summary: LevelReportSummary }) {
   return (
     <View className="gap-3">
-      <Text className="text-lg font-semibold text-white">Poll results</Text>
-      {summary.reports === 0 ? <Text className="text-zinc-300">No responses for this level yet.</Text> : null}
+      <Text className="font-mono text-lg font-semibold text-term-text">Poll results</Text>
+      {summary.reports === 0 ? <Text className="font-mono text-term-dim">No responses for this level yet.</Text> : null}
       {reportQuestions.map(({ id, label, choices }) => {
         const slices = reportPie(summary.counts[id]);
         if (!slices.length) return null;
         return (
-          <View key={id} className="gap-2 rounded-lg bg-zinc-800 p-3">
-            <Text className="font-semibold text-white">{label}</Text>
+          <View key={id} className="gap-2 rounded-sm bg-term-field border border-term-line p-3">
+            <Text className="font-mono font-semibold text-term-text">{label}</Text>
             <View className="flex-row items-center gap-3">
               <View style={styles.pie} accessible={false}>
                 {slices.flatMap(({ index, start, end, color }) => {
@@ -39,7 +40,7 @@ export default function ReportCharts({ summary }: { summary: LevelReportSummary 
                 {slices.map(({ index, color, count, percent }) => (
                   <View key={index} className="flex-row items-center gap-2">
                     <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} />
-                    <Text className="flex-1 text-zinc-100">{choices[index]} · {count} ({percent}%)</Text>
+                    <Text className="font-mono flex-1 text-term-text">{choices[index]} · {count} ({percent}%)</Text>
                   </View>
                 ))}
               </View>
@@ -48,7 +49,7 @@ export default function ReportCharts({ summary }: { summary: LevelReportSummary 
         );
       })}
       {summary.temperatureCount ? (
-        <Text className="text-zinc-300">
+        <Text className="font-mono text-term-dim">
           Average measured temperature · {summary.averageTemperatureF?.toFixed(1)} °F ({summary.temperatureCount} readings)
         </Text>
       ) : null}
@@ -57,7 +58,7 @@ export default function ReportCharts({ summary }: { summary: LevelReportSummary 
 }
 
 const styles = StyleSheet.create({
-  pie: { width: diameter, height: diameter, borderRadius: radius, backgroundColor: '#3f3f46' },
+  pie: { width: diameter, height: diameter, borderRadius: radius, backgroundColor: term.field, borderWidth: 1, borderColor: term.line },
   disc: { position: 'absolute', width: diameter, height: diameter },
   clip: { position: 'absolute', left: radius, width: radius, height: diameter, overflow: 'hidden' },
   half: { position: 'absolute', left: radius, width: radius, height: diameter,
