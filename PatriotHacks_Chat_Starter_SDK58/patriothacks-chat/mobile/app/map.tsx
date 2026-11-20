@@ -1,3 +1,4 @@
+import { blockPlacementPoint, type DropFrame } from '../src/blockPlacement';
 import { MapPlaceLayer, MapPlacesPanel } from '../src/MapPlaces';
 import { loadPrivatePlaces, savePrivatePlace, removePrivatePlace, movePrivatePlace, loadSharedPlaces, cacheSharedPlaces } from '../src/mapStorage';
 import type { MapPlace, MapPlaceKind, MapPlaceSnapshot } from '@patriot/protocol';
@@ -20,6 +21,11 @@ import { loadMap, saveMapPath, queueMapShare } from '../src/mapStorage';
 
 export default function MapScreen() {
   const canTest = useChat((state) => state.profiles[state.key]?.name === 'test');
+  const mapView = useRef<View>(null);
+  const rootView = useRef<View>(null);
+  const [blockGhost, setBlockGhost] = useState<{ x: number; y: number }>();
+  const rootOrigin = useRef({ x: 0, y: 0 });
+  const dropFrame = useRef<DropFrame | undefined>(undefined);
   const [draggingPin, setDraggingPin] = useState(false);
   const [privatePlaces, setPrivatePlaces] = useState<MapPlace[]>([]);
   const [sharedPlaces, setSharedPlaces] = useState<MapPlaceSnapshot>({ revision: 0, places: [] });
@@ -236,7 +242,7 @@ export default function MapScreen() {
 
   async function createPlace(kind: MapPlaceKind, label: string, blackout: 'Some areas dark' | 'Whole level dark', point: MapPoint, id: string) {
     if (!point || testing) throw new Error('Choose a real map location first.');
-    if (!picked && live.stale) throw new Error('Your location is outdated. Wait for a fresh fix or hold a location on the map.');
+    if (kind !== 'block' && !picked && live.stale) throw new Error('Your location is outdated. Wait for a fresh fix or hold a location on the map.');
     const place: MapPlace = { id, kind, label, level,
       point: { latitude: point.latitude, longitude: point.longitude }, createdAt: Date.now(),
       ...(kind === 'blackout' ? { blackout } : {}) };
@@ -299,7 +305,30 @@ export default function MapScreen() {
   const markerY = center && position ? size.height / 2 - (position.latitude - center.latitude) * 111320 * scale : -100;
 
 
-  return <SafeAreaView style={{ flex: 1, backgroundColor: '#020617' }}>
+  async function beginBlockPlacement() {
+    setDraggingPin(true);
+    if (center) setCamera({ ...center });
+    rootView.current?.measureInWindow((x, y) => { rootOrigin.current = { x, y }; });
+    // Freeze projection while the button is being dragged. Screen coordinates
+    // are measured in the same window space as the finger.
+    const projection = center ? { center: { ...center }, longitudeMeters, scale } : undefined;
+    dropFrame.current = undefined;
+    if (!projection) return;
+    await new Promise<void>((resolve, reject) => {
+      if (!mapView.current) { reject(new Error('Map is not ready.')); return; }
+      mapView.current.measureInWindow((x, y, width, height) => {
+        dropFrame.current = { x: x + 1, y: y + 1, width: Math.max(0, width - 2), height: Math.max(0, height - 2), ...projection };
+        resolve();
+      });
+    });
+  }
+  async function finishBlockPlacement(drop?: { x: number; y: number }) {
+    const point = blockPlacementPoint(drop, dropFrame.current, position, live.stale);
+    setBlockGhost(undefined);
+    await createPlace('block', 'Blocked passage', 'Some areas dark', point, Crypto.randomUUID());
+  }
+
+  return <SafeAreaView ref={rootView} collapsable={false} style={{ flex: 1, backgroundColor: '#020617' }}>
     <ScrollView scrollEnabled={!usingJoystick && !draggingPin} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && recording ? 170 : 16 }}>
       <Pressable onPress={() => router.back()} accessibilityRole="button"><Text className="font-semibold text-sky-300">‹ Social network</Text></Pressable>
       <Text className="text-xl font-bold text-white">Level map</Text>
@@ -309,7 +338,7 @@ export default function MapScreen() {
           <Text className="text-white">{room.replace(' Levels', '').replace(' Level', '')}</Text>
         </Pressable>)}</View>
       <Text className="text-xs text-slate-300">Choose your current floor. Overlapping recordings merge into the most supported route. Walls and room layouts are unknown.</Text>
-      <View onLayout={({ nativeEvent }) => {
+      <View ref={mapView} collapsable={false} onLayout={({ nativeEvent }) => {
         const { width, height } = nativeEvent.layout;
         setSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
       }} style={{ height: 350, overflow: 'hidden', borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' }}>
@@ -332,7 +361,13 @@ export default function MapScreen() {
       {camera ? <Pressable onPress={() => setCamera(undefined)}><Text className="text-sky-300">Follow my location</Text></Pressable> : null}
       {!testing ? <MapPlacesPanel level={level} target={picked ?? position} picked={!!picked}
         clearPicked={() => setPicked(undefined)} places={places} online={online} disabled={busy}
-        create={createPlace} inspect={inspectPlace} focus={setCamera} /> : null}
+        create={createPlace} inspect={inspectPlace} focus={setCamera}
+        blockPlacement={{
+          begin: beginBlockPlacement,
+          preview: (x, y) => setBlockGhost({ x: x - rootOrigin.current.x, y: y - rootOrigin.current.y }),
+          finish: finishBlockPlacement,
+          cancel: () => { dropFrame.current = undefined; setBlockGhost(undefined); setDraggingPin(false); },
+        }} /> : null}
       <Text className="text-xs text-slate-400">Grey: saved paths · Light grey: overlapping recordings · Blue: current walk · Nearby parallel routes may merge within about 6.5 ft.</Text>
       <Text className="text-xs text-slate-400">Map north stays up · Compass turns with your heading · Distances in feet and inches.</Text>
       <Text className="text-xs text-slate-300">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable'}</Text>
@@ -356,6 +391,11 @@ export default function MapScreen() {
       {message ? <Text className="text-sm text-slate-200">{message}</Text> : null}
       <Text className="text-xs text-slate-400">Location updates and recording stop when this map leaves the foreground. A shared route contains coordinates, but no name or live location marker.</Text>
     </ScrollView>
+    {blockGhost ? <View pointerEvents="none" style={{ position: 'absolute', left: blockGhost.x - 20,
+      top: blockGhost.y - 36, width: 40, height: 36, borderRadius: 12, backgroundColor: '#7f1d1d',
+      borderWidth: 2, borderColor: '#fb7185', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 24 }}>✕</Text>
+    </View> : null}
     {canTest && testing && recording ? <MapJoystick move={moveTest} interaction={setUsingJoystick} /> : null}
   </SafeAreaView>;
 }

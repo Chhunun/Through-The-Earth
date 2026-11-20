@@ -1,3 +1,4 @@
+import BlockPassageButton from './BlockPassageButton';
 import DraggableMapPin from './DraggableMapPin';
 import { pointOnMap, stackMapPlaces } from './mapMarkerLayout';
 import * as Crypto from 'expo-crypto';
@@ -73,7 +74,11 @@ export function MapPlaceLayer({ places, center, originLatitude, scale, width, he
   </>;
 }
 
-export function MapPlacesPanel({ level, target, picked, clearPicked, places, online, disabled, create, inspect, focus }: {
+export function MapPlacesPanel({ level, target, picked, clearPicked, places, online, disabled, create, inspect, focus, blockPlacement }: {
+  blockPlacement: {
+    begin: () => Promise<void>; preview: (x: number, y: number) => void;
+    finish: (drop?: { x: number; y: number }) => Promise<void>; cancel: () => void;
+  };
   level: Room; target?: MapPoint; picked: boolean; clearPicked: () => void; places: MapPlace[];
   online: boolean; disabled: boolean; create: (kind: MapPlaceKind, label: string, blackout: 'Some areas dark' | 'Whole level dark', point: MapPoint, id: string) => Promise<void>;
   inspect: (place: MapPlace) => void; focus: (point: MapPoint) => void;
@@ -106,11 +111,13 @@ export function MapPlacesPanel({ level, target, picked, clearPicked, places, onl
     <Text className="text-xs text-slate-300">{picked ? 'Using the orange target. ' : 'Using your location. '}Hold on the map to choose another spot.</Text>
     {picked ? <Pressable onPress={clearPicked}><Text className="text-sky-300">Use my location instead</Text></Pressable> : null}
     <View className="flex-row flex-wrap gap-2">
-      {(['personal', 'blackout', 'block'] as const).map((value) => <Pressable key={value}
+      {(['personal', 'blackout'] as const).map((value) => <Pressable key={value}
         disabled={disabled || saving} onPress={() => open(value)} className="rounded bg-slate-800 p-3">
-        <Text style={{ color: placeColor(value) }}>{value === 'personal' ? 'Save pin' : value === 'blackout' ? 'Report blackout' : 'Block passage'}</Text>
+        <Text style={{ color: placeColor(value) }}>{value === 'personal' ? 'Save pin' : 'Report blackout'}</Text>
       </Pressable>)}
+      <BlockPassageButton disabled={disabled || saving || !online} {...blockPlacement} />
     </View>
+    <Text className="text-xs text-slate-300">Tap Block passage to publish at your current location, or drag it onto the map. Shared blocks are visible to everyone.</Text>
     <Text className="text-xs text-slate-400">Purple: your saved pins · Yellow: reported blackout · Red: blocked passage. Tap a stack to choose a marker. Hold a marker until it highlights, then drag to move it. Tap for details or removal.</Text>
     {!online ? <Text className="text-xs text-amber-200">Shared markers are a cached snapshot and may be outdated. Reconnect to update or remove them.</Text> : null}
     <ScrollView nestedScrollEnabled style={{ maxHeight: 180 }}>
