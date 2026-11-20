@@ -8,3 +8,49 @@ relay/profiles.local.json
 relay/profiles.local.json.tmp
 
 relay/maps.sqlite*
+
+# Dependencies and generated files
+node_modules/
+.expo/
+.cache/
+dist/
+coverage/
+*.tsbuildinfo
+*.apk
+*.aab
+*.ipa
+
+# Local environment settings
+.env
+.env.*
+!.env.example
+
+# Private runtime data
+relay/profiles.local.json
+relay/profiles.local.json.tmp
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+relay/maps.sqlite*
+
+# Credentials and signing keys
+credentials.json
+secrets.local.json
+service-account*.json
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+
+# Logs and local editor files
+*.log
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
