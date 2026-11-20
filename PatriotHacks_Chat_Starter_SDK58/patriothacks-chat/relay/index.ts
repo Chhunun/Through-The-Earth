@@ -1,4 +1,5 @@
-import { readMap, storeMapPath } from './mapStore.js';
+import { mapPlaceEvents, isMapPlace, isMapPoint, type MapPlaceSnapshot } from '@patriot/protocol';
+import { readMap, storeMapPath, readMapPlaces, storeMapPlace, removeMapPlace, moveMapPlace } from './mapStore.js';
 import { profiles, storeProfile } from './profiles.js';
 import { validateReport, saveReport, readReports, incidentSnapshot, severeReports, levelTemperatures } from './reports.js';
 import { createServer } from 'node:http';
@@ -75,6 +76,59 @@ io.on('connection', (socket) => {
     socket.emit(levelTemperatureEvent, levelTemperatures());
     publishPresence();
     for (const message of pending.get(key)?.values() ?? []) socket.emit(events.receive, message);
+  });
+
+  socket.on(mapPlaceEvents.read, (reply: (snapshot: MapPlaceSnapshot) => void) => {
+    if (!authenticated || typeof reply !== 'function') return;
+    try { reply(readMapPlaces()); } catch (error) { console.error('Read map markers failed', error); }
+  });
+  socket.on(mapPlaceEvents.add, (value: unknown, reply: (ack: Ack) => void) => {
+    if (typeof reply !== 'function') return;
+    if (!authenticated || !isMapPlace(value) || value.kind === 'personal') {
+      reply({ ok: false, error: 'Invalid shared marker or session.' }); return;
+    }
+    const own = value.kind === 'blackout' ? readReports(value.level, key) : undefined;
+    if (own && own.summary.reports >= 1000 && !own.recent.some((report) => report.reporter === key)) {
+      reply({ ok: false, error: 'This level has reached its report limit.' }); return;
+    }
+    try {
+      const place = { ...value, kind: value.kind, createdAt: Date.now() };
+      const result = storeMapPlace(place);
+      if (result.ok) {
+        if (place.kind === 'blackout' && own) {
+          saveReport(place.level, key, { answers: { ...own.own.answers, blackout: place.blackout! },
+            ...(own.own.temperatureF !== undefined ? { temperatureF: own.own.temperatureF } : {}) });
+          publishIncidents();
+          io.to('room-readers').emit(levelTemperatureEvent, levelTemperatures());
+        }
+        io.to('room-readers').emit(mapPlaceEvents.snapshot, readMapPlaces());
+      }
+      reply(result);
+    } catch (error) { console.error('Save map marker failed', error); reply({ ok: false, error: 'Could not save marker.' }); }
+  });
+  socket.on(mapPlaceEvents.move, (id: unknown, from: unknown, to: unknown, reply: (ack: Ack) => void) => {
+    if (typeof reply !== 'function') return;
+    if (!authenticated || typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id) || !isMapPoint(from) || !isMapPoint(to)) {
+      reply({ ok: false, error: 'Invalid move or session.' }); return;
+    }
+    try {
+      const result = moveMapPlace(id, from, to);
+      // Send the current snapshot on conflict too, so the requester can retry safely.
+      io.to('room-readers').emit(mapPlaceEvents.snapshot, readMapPlaces());
+      reply(result);
+    } catch (error) { console.error('Move marker failed', error); reply({ ok: false, error: 'Could not move marker.' }); }
+  });
+
+  socket.on(mapPlaceEvents.remove, (id: unknown, reply: (ack: Ack) => void) => {
+    if (typeof reply !== 'function') return;
+    if (!authenticated || typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id)) {
+      reply({ ok: false, error: 'Invalid marker or session.' }); return;
+    }
+    try {
+      const result = removeMapPlace(id);
+      if (result.ok) io.to('room-readers').emit(mapPlaceEvents.snapshot, readMapPlaces());
+      reply(result);
+    } catch (error) { console.error('Remove map marker failed', error); reply({ ok: false, error: 'Could not remove marker.' }); }
   });
 
   socket.on(mapEvents.read, (reply: (paths: WalkPath[]) => void) => {

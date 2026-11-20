@@ -49,8 +49,8 @@ export default memo(function MapPathLayer({ segments, draft, center, width, heig
   return <Svg pointerEvents="none" width={width} height={height}
     style={{ position: 'absolute', left: 0, top: 0 }}
     viewBox={`${x - viewWidth / 2} ${y - viewHeight / 2} ${viewWidth} ${viewHeight}`}>
-    <Drawing data={recorded.normal} color="#38bdf8" strokeWidth={3 / scale} />
-    <Drawing data={recorded.repeated} color="#7dd3fc" strokeWidth={3 / scale} />
+    <Drawing data={recorded.normal} color="#9ca3af" strokeWidth={3 / scale} />
+    <Drawing data={recorded.repeated} color="#d1d5db" strokeWidth={3 / scale} />
     <Drawing data={live} color="#38bdf8" strokeWidth={3 / scale} />
   </Svg>;
 });

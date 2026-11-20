@@ -216,3 +216,42 @@ export function isWalkPath(value: unknown): value is WalkPath {
       && Math.abs(point.latitude) <= 90 && Number.isFinite(point.longitude)
       && Math.abs(point.longitude) <= 180);
 }
+
+export type MapPlaceKind = 'personal' | 'blackout' | 'block';
+export interface MapPlace {
+  id: string;
+  level: Room;
+  point: MapPoint;
+  kind: MapPlaceKind;
+  label: string;
+  createdAt: number;
+  blackout?: 'Some areas dark' | 'Whole level dark';
+}
+export type SharedMapPlace = MapPlace & { kind: 'blackout' | 'block' };
+export type MapPlaceSnapshot = { revision: number; places: SharedMapPlace[] };
+export const mapPlaceEvents = { read: 'map:places:read', add: 'map:places:add',
+  remove: 'map:places:remove', move: 'map:places:move', snapshot: 'map:places:snapshot' };
+export function isMapPlace(value: unknown): value is MapPlace {
+  if (!value || typeof value !== 'object') return false;
+  const p = value as MapPlace;
+  return typeof p.id === 'string' && /^[0-9a-f-]{36}$/.test(p.id) && isRoom(p.level)
+    && ['personal', 'blackout', 'block'].includes(p.kind)
+    && typeof p.label === 'string' && p.label.trim().length > 0 && p.label.length <= 80
+    && Number.isSafeInteger(p.createdAt) && p.createdAt >= 0 && !!p.point
+    && Number.isFinite(p.point.latitude) && Math.abs(p.point.latitude) <= 90
+    && Number.isFinite(p.point.longitude) && Math.abs(p.point.longitude) <= 180
+    && (p.kind !== 'blackout' || p.blackout === 'Some areas dark' || p.blackout === 'Whole level dark');
+}
+export function isMapPlaceSnapshot(value: unknown): value is MapPlaceSnapshot {
+  if (!value || typeof value !== 'object') return false;
+  const s = value as MapPlaceSnapshot;
+  return Number.isSafeInteger(s.revision) && s.revision >= 0 && Array.isArray(s.places)
+    && s.places.length <= 1000 && s.places.every((p) => isMapPlace(p) && (p.kind === 'blackout' || p.kind === 'block'));
+}
+
+export function isMapPoint(value: unknown): value is MapPoint {
+  if (!value || typeof value !== 'object') return false;
+  const p = value as MapPoint;
+  return Number.isFinite(p.latitude) && Math.abs(p.latitude) <= 90
+    && Number.isFinite(p.longitude) && Math.abs(p.longitude) <= 180;
+}
