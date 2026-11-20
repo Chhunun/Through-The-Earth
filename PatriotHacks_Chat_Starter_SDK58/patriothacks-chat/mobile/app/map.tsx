@@ -1,3 +1,7 @@
+import { MapPlaceLayer, MapPlacesPanel } from '../src/MapPlaces';
+import { loadPrivatePlaces, savePrivatePlace, removePrivatePlace, movePrivatePlace, loadSharedPlaces, cacheSharedPlaces } from '../src/mapStorage';
+import type { MapPlace, MapPlaceKind, MapPlaceSnapshot } from '@patriot/protocol';
+import { usePrivateMapLocation } from '../src/usePrivateMapLocation';
 import { useChat } from '../src/chat';
 import { publicKey } from '../src/crypto';
 import MapPathLayer from '../src/MapPathLayer';
@@ -9,7 +13,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import * as Location from 'expo-location';
 import * as Crypto from 'expo-crypto';
 import { rooms, type MapPoint, type Room, type WalkPath } from '@patriot/protocol';
 import { mapConnection } from '../src/mapConnection';
@@ -17,20 +20,29 @@ import { loadMap, saveMapPath, queueMapShare } from '../src/mapStorage';
 
 export default function MapScreen() {
   const canTest = useChat((state) => state.profiles[state.key]?.name === 'test');
+  const [draggingPin, setDraggingPin] = useState(false);
+  const [privatePlaces, setPrivatePlaces] = useState<MapPlace[]>([]);
+  const [sharedPlaces, setSharedPlaces] = useState<MapPlaceSnapshot>({ revision: 0, places: [] });
+  const [picked, setPicked] = useState<MapPoint>();
+  const [camera, setCamera] = useState<MapPoint>();
+  const receivedPlaces = useRef(false);
+  const cacheWrites = useRef(Promise.resolve());
   const [pendingShares, setPendingShares] = useState(0);
   const [usingJoystick, setUsingJoystick] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testPaths, setTestPaths] = useState<WalkPath[]>([]);
-  const [heading, setHeading] = useState<number>();
-  const [headingSource, setHeadingSource] = useState('');
-  const headingWatcher = useRef<Location.LocationSubscription | undefined>(undefined);
-  const headingFreshAt = useRef(0);
-  const displayedHeading = useRef({ value: -1, at: 0 });
+  const [simHeading, setSimHeading] = useState<number>();
+  const [locationEnabled, setLocationEnabled] = useState(false);
+  const live = usePrivateMapLocation(locationEnabled && !testing);
+  const heading = testing ? simHeading : live.heading;
+  const headingSource = testing ? 'Simulated movement' : live.headingSource;
+  const lastRecordedAt = useRef(0);
   const testPoint = useRef<MapPoint>({ latitude: 0, longitude: 0 });
   const [level, setLevel] = useState<Room>('Middle Level');
   const [paths, setPaths] = useState<WalkPath[]>([]);
-  const [position, setPosition] = useState<MapPoint>();
-  const [accuracy, setAccuracy] = useState<number>();
+  const [simPosition, setSimPosition] = useState<MapPoint>();
+  const position = testing ? simPosition : live.fix;
+  const accuracy = testing ? undefined : live.fix?.accuracy;
   const [draft, setDraft] = useState<WalkPath>();
   const [recording, setRecording] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -39,24 +51,13 @@ export default function MapScreen() {
   const [busy, setBusy] = useState(false);
   const [scale, setScale] = useState(2);
   const [size, setSize] = useState({ width: 300, height: 300 });
-  const watcher = useRef<Location.LocationSubscription | undefined>(undefined);
   const walk = useRef<WalkPath | undefined>(undefined);
   const active = useRef(true);
-  const generation = useRef(0);
   const connection = useRef<Awaited<ReturnType<typeof mapConnection>> | undefined>(undefined);
 
   function stop() {
-    generation.current++;
-    watcher.current?.remove();
-    watcher.current = undefined;
-    headingWatcher.current?.remove();
-    headingWatcher.current = undefined;
-    displayedHeading.current = { value: -1, at: 0 };
-    setHeading(undefined);
-    setHeadingSource('');
     setRecording(false);
     setUsingJoystick(false);
-    setPosition(undefined);
     setBusy(false);
   }
 
@@ -76,6 +77,15 @@ export default function MapScreen() {
       if (!active.current) return;
       setPaths((current) => [...new Map([...current, ...incoming].map((path) => [path.id, path])).values()]);
     }
+    let owner: string;
+    publicKey().then(async (key) => {
+      owner = key;
+      const places = await loadPrivatePlaces(owner);
+      if (active.current) setPrivatePlaces(places);
+    }).catch(() => { if (active.current) setMessage('Could not load private pins.'); });
+    loadSharedPlaces().then((snapshot) => {
+      if (snapshot && active.current && !receivedPlaces.current) setSharedPlaces(snapshot);
+    }).catch(() => { if (active.current) setMessage('Could not load cached markers.'); });
     loadMap().then(merge).catch(() => setMessage('Could not load the cached map.'));
     mapConnection((incoming) => {
       merge(incoming);
@@ -86,23 +96,27 @@ export default function MapScreen() {
       if (!active.current) return;
       setOnline(connected);
       if (error) setMessage(error);
-    }, (count) => { if (active.current) setPendingShares(count); }).then((relay) => {
+    }, (count) => { if (active.current) setPendingShares(count); }, (snapshot) => {
+      if (!active.current) return;
+      receivedPlaces.current = true;
+      setSharedPlaces(snapshot);
+      // Serialize snapshots so a slow older disk write cannot restore deleted markers.
+      cacheWrites.current = cacheWrites.current.then(() => cacheSharedPlaces(snapshot)).catch(() => {
+        if (active.current) setMessage('Could not cache map markers.');
+      });
+    }).then((relay) => {
       if (active.current) connection.current = relay;
       else relay.close();
     }).catch((error) => { if (active.current) setMessage(String(error)); });
-    Alert.alert('Contribute walking paths?', 'Recording uses your phone’s location while this map is open. Saved paths stay on this device until you tap Share path. Sharing sends the route to everyone on the relay. Your live marker stays on this phone. Select your current floor manually.',
-      [{ text: 'Browse only' }, { text: 'Allow recording', onPress: () => setConsent(true) }]);
+    Alert.alert('Contribute walking paths?', 'Recording uses your phone’s location while this map is open. Saved paths stay on this device until you tap Share path. Sharing sends the route to everyone on the relay. Your private marker uses location even when browsing, with your phone’s permission. Recording and sharing are separate. Select your current floor manually.',
+      [{ text: 'Browse only', onPress: () => setLocationEnabled(true) }, { text: 'Allow recording', onPress: () => { setLocationEnabled(true); setConsent(true); } }]);
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active') {
         stop();
-        setPosition(undefined);
       }
     });
     return () => {
       active.current = false;
-      generation.current++;
-      watcher.current?.remove();
-      headingWatcher.current?.remove();
       connection.current?.close();
       subscription.remove();
     };
@@ -119,7 +133,7 @@ export default function MapScreen() {
       const next: WalkPath = { id: Crypto.randomUUID(), level, points: [{ ...testPoint.current }] };
       walk.current = next;
       setDraft(next);
-      setPosition({ ...testPoint.current });
+      setSimPosition({ ...testPoint.current });
       setRecording(true);
       setMessage('Simulated walk. Drag the joystick to move.');
       return;
@@ -129,80 +143,36 @@ export default function MapScreen() {
         [{ text: 'Cancel' }, { text: 'Allow', onPress: () => setConsent(true) }]);
       return;
     }
-    const request = ++generation.current;
-    setBusy(true);
-    setMessage('');
-    try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (!active.current || generation.current !== request) return;
-      if (!permission.granted) throw new Error('Location permission was denied. You can still browse the map.');
-      try {
-        const compass = await Location.watchHeadingAsync((value) => {
-          if (!active.current || generation.current !== request) return;
-          if (value.accuracy < 1) return;
-          const bearing = value.trueHeading >= 0 ? value.trueHeading : value.magHeading;
-          if (!Number.isFinite(bearing) || bearing < 0) return;
-          headingFreshAt.current = Date.now();
-          const previous = displayedHeading.current;
-          const difference = Math.abs(((bearing - previous.value + 540) % 360) - 180);
-          if (Date.now() - previous.at < 150 || (previous.value >= 0 && difference < 2)) return;
-          displayedHeading.current = { value: bearing, at: Date.now() };
-          setHeading(bearing);
-          setHeadingSource(value.trueHeading >= 0 ? 'Phone heading' : 'Magnetic heading');
-        });
-        if (!active.current || generation.current !== request) { compass.remove(); return; }
-        headingWatcher.current = compass;
-      } catch {
-        if (!active.current || generation.current !== request) return;
-      }
-      const next: WalkPath = { id: Crypto.randomUUID(), level, points: [] };
-      walk.current = next;
-      setDraft(next);
-      const subscription = await Location.watchPositionAsync({
-        accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 2, timeInterval: 1500,
-      }, (location) => {
-        if (!active.current || generation.current !== request) return;
-        const { latitude, longitude, accuracy } = location.coords;
-        setAccuracy(accuracy ?? undefined);
-        if (accuracy === null || accuracy > 20 || Date.now() - location.timestamp > 15000) {
-          setPosition(undefined);
-          if (next.points.length) {
-            stop();
-            setMessage('Recording paused because location became uncertain. Save this segment, then start a new walk.');
-          } else setMessage('Location is uncertain. Waiting for a more accurate fix.');
-          return;
-        }
-        const point = { latitude, longitude };
-        setPosition(point);
-        if (Date.now() - headingFreshAt.current > 5000) {
-          const course = location.coords.heading;
-          if (course !== null && course >= 0 && (location.coords.speed ?? 0) > 0.5) {
-            setHeading(course);
-            setHeadingSource('Direction of movement');
-          } else { setHeading(undefined); setHeadingSource(''); }
-        }
-        setMessage('Estimated position. Indoor accuracy may be limited.');
-        next.points = [...next.points, point];
-        setDraft({ ...next });
-        if (next.points.length >= 300) {
-          stop();
-          setMessage('Walk limit reached. Save this path before recording another.');
-        }
-      });
-      if (!active.current || generation.current !== request) subscription.remove();
-      else {
-        watcher.current = subscription;
-        setRecording(true);
-        setMessage('Recording. Waiting for a location fix…');
-      }
-    } catch (error) {
-      if (active.current && generation.current === request) {
-        setMessage(error instanceof Error ? error.message : String(error));
-      }
-    } finally {
-      if (active.current && generation.current === request) setBusy(false);
-    }
+    setLocationEnabled(true);
+    lastRecordedAt.current = Date.now();
+    const next: WalkPath = { id: Crypto.randomUUID(), level, points: [] };
+    walk.current = next;
+    setDraft(next);
+    setRecording(true);
+    setMessage('Recording. Waiting for a fresh, accurate location fix…');
   }
+
+  useEffect(() => {
+    if (!recording || testing || !live.fix) return;
+    const fix = live.fix;
+    if (live.stale || fix.accuracy === null || fix.accuracy > 20) {
+      if (walk.current?.points.length) {
+        stop();
+        setMessage('Recording paused because location became uncertain. Save this segment, then start a new walk.');
+      }
+      return;
+    }
+    if (fix.timestamp <= lastRecordedAt.current) return;
+    lastRecordedAt.current = fix.timestamp;
+    const path = walk.current;
+    if (!path) return;
+    path.points = [...path.points, { latitude: fix.latitude, longitude: fix.longitude }];
+    setDraft({ ...path });
+    if (path.points.length >= 300) {
+      stop();
+      setMessage('Walk limit reached. Save this path before recording another.');
+    }
+  }, [live.fix, live.stale, recording, testing]);
 
   async function save(share: boolean) {
     const path = walk.current;
@@ -243,10 +213,9 @@ export default function MapScreen() {
     testPoint.current = next;
     const path = walk.current;
     path.points = [...path.points, next];
-    setPosition(next);
+    setSimPosition(next);
     setDraft({ ...path });
-    setHeading((Math.atan2(east, north) * 180 / Math.PI + 360) % 360);
-    setHeadingSource('Simulated movement');
+    setSimHeading((Math.atan2(east, north) * 180 / Math.PI + 360) % 360);
     if (path.points.length >= 300) {
       stop();
       setMessage('Test path limit reached. Save or discard this segment.');
@@ -257,24 +226,85 @@ export default function MapScreen() {
     if (!canTest || recording || busy || draft) return;
     stop();
     testPoint.current = { latitude: 0, longitude: 0 };
+    setSimPosition(undefined);
+    setSimHeading(undefined);
+    setCamera(undefined);
+    setPicked(undefined);
     setTesting((value) => !value);
     setMessage('');
   }
 
+  async function createPlace(kind: MapPlaceKind, label: string, blackout: 'Some areas dark' | 'Whole level dark', point: MapPoint, id: string) {
+    if (!point || testing) throw new Error('Choose a real map location first.');
+    if (!picked && live.stale) throw new Error('Your location is outdated. Wait for a fresh fix or hold a location on the map.');
+    const place: MapPlace = { id, kind, label, level,
+      point: { latitude: point.latitude, longitude: point.longitude }, createdAt: Date.now(),
+      ...(kind === 'blackout' ? { blackout } : {}) };
+    if (kind === 'personal') {
+      await savePrivatePlace(await publicKey(), place);
+      setPrivatePlaces((current) => [...current.filter((p) => p.id !== place.id), place]);
+      setMessage('Private pin saved on this device.');
+    } else {
+      if (!connection.current) throw new Error('Relay unavailable.');
+      await connection.current.addPlace({ ...place, kind });
+      setMessage('Map report published.');
+    }
+    setPicked(undefined);
+  }
+  async function movePlace(place: MapPlace, point: MapPoint) {
+    try {
+      if (place.kind === 'personal') {
+        await movePrivatePlace(await publicKey(), place, point);
+        if (active.current) setPrivatePlaces((current) => current.map((p) => p.id === place.id ? { ...p, point } : p));
+      } else {
+        if (!connection.current) throw new Error('Relay unavailable.');
+        await connection.current.movePlace(place.id, place.point, point);
+      }
+      if (active.current) setMessage('Marker moved.');
+    } catch (error) {
+      if (active.current) setMessage(String(error));
+      throw error;
+    }
+  }
+  function inspectPlace(place: MapPlace) {
+    Alert.alert(place.label, (place.kind === 'personal' ? 'Private saved place' : 'Resident-reported ' + (place.kind === 'block' ? 'blocked passage' : 'blackout'))
+      + '\n' + place.level + '\n' + new Date(place.createdAt).toLocaleString()
+      + (place.blackout ? '\n' + place.blackout : '')
+      + (place.kind === 'blackout' ? '\nRemoving the marker does not change your Status answer.' : ''), [
+      { text: 'Close', style: 'cancel' },
+      { text: 'Remove marker', style: 'destructive', onPress: () => {
+        void (async () => {
+          if (place.kind === 'personal') {
+            await removePrivatePlace(await publicKey(), place.id);
+            setPrivatePlaces((current) => current.filter((p) => p.id !== place.id));
+          } else {
+            if (!connection.current) throw new Error('Relay unavailable.');
+            await connection.current.removePlace(place.id);
+          }
+          if (active.current) setMessage('Marker removed.');
+        })().catch((error) => { if (active.current) setMessage(String(error)); });
+      } },
+    ]);
+  }
+  const places = [...privatePlaces, ...sharedPlaces.places].filter((p) => p.level === level);
   const visible = (testing ? testPaths : paths).filter((path) => path.level === level);
   const tracks = [...visible, ...(draft?.level === level ? [draft] : [])];
   const merged = useMemo(() => mergeWalkPaths(
     (testing ? testPaths : paths).filter((path) => path.level === level),
   ), [testing, testPaths, paths, level]);
-  const center = position ?? tracks[0]?.points[0];
+  const center = camera ?? position ?? tracks[0]?.points[0] ?? places[0]?.point;
+  const originLatitude = merged[0]?.from.latitude ?? draft?.points[0]?.latitude ?? center?.latitude ?? 0;
+  const longitudeMeters = 111320 * Math.cos(originLatitude * Math.PI / 180);
+  const markerX = center && position ? size.width / 2 + (position.longitude - center.longitude) * longitudeMeters * scale : -100;
+  const markerY = center && position ? size.height / 2 - (position.latitude - center.latitude) * 111320 * scale : -100;
 
 
   return <SafeAreaView style={{ flex: 1, backgroundColor: '#020617' }}>
-    <ScrollView scrollEnabled={!usingJoystick} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && recording ? 170 : 16 }}>
+    <ScrollView scrollEnabled={!usingJoystick && !draggingPin} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && recording ? 170 : 16 }}>
       <Pressable onPress={() => router.back()} accessibilityRole="button"><Text className="font-semibold text-sky-300">‹ Social network</Text></Pressable>
       <Text className="text-xl font-bold text-white">Level map</Text>
       <View className="flex-row gap-2">{rooms.map((room) =>
-        <Pressable key={room} disabled={recording || busy || !!draft} onPress={() => { setLevel(room); setPosition(undefined); }}
+        <Pressable key={room} disabled={recording || busy || !!draft || draggingPin} onPress={() => { setLevel(room); setPicked(undefined); setCamera(undefined); }}
           className={room === level ? 'rounded bg-sky-800 p-2' : 'rounded bg-zinc-800 p-2'}>
           <Text className="text-white">{room.replace(' Levels', '').replace(' Level', '')}</Text>
         </Pressable>)}</View>
@@ -285,23 +315,33 @@ export default function MapScreen() {
       }} style={{ height: 350, overflow: 'hidden', borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' }}>
         <MapPathLayer segments={merged} draft={draft?.level === level ? draft : undefined}
           center={center} width={size.width} height={size.height} scale={scale} />
-        {position ? <View accessibilityLabel="Your estimated location, visible only to you" style={{ position: 'absolute', left: size.width / 2 - 7, top: size.height / 2 - 7, height: 14, width: 14, borderRadius: 7, backgroundColor: '#f8fafc', borderWidth: 3, borderColor: '#2563eb' }} /> : null}
+        {position ? <View accessibilityLabel="Your estimated location, visible only to you" style={{ position: 'absolute', left: markerX - 7, top: markerY - 7, height: 14, width: 14, borderRadius: 7, backgroundColor: '#f8fafc', borderWidth: 3, borderColor: !testing && live.stale ? '#94a3b8' : '#2563eb' }} /> : null}
         {position && heading !== undefined ? <View pointerEvents="none" style={{
-          position: 'absolute', left: size.width / 2 - 14, top: size.height / 2 - 14,
+          position: 'absolute', left: markerX - 14, top: markerY - 14,
           width: 28, height: 28, transform: [{ rotate: heading + 'deg' }],
         }}>
           <Text style={{ position: 'absolute', top: -15, left: 5, color: '#60a5fa', fontSize: 20 }}>▲</Text>
         </View> : null}
         {!tracks.some((path) => path.points.length > 1) ? <Text className="px-12 pt-24 text-slate-400">No paths recorded on this level yet.</Text> : null}
+        {!testing ? <MapPlaceLayer places={places} center={center} originLatitude={originLatitude}
+          scale={scale} width={size.width} height={size.height} picked={picked}
+          pick={setPicked} inspect={inspectPlace} move={movePlace} online={online}
+          interaction={(value) => { if (value && center) setCamera({ ...center }); setDraggingPin(value); }} /> : null}
         <MapControls width={size.width} scale={scale} zoom={setScale} heading={heading} />
       </View>
-      <Text className="text-xs text-slate-400">Light blue: multiple recordings overlap · Blue: one recording · Nearby parallel routes may merge within about 6.5 ft.</Text>
+      {camera ? <Pressable onPress={() => setCamera(undefined)}><Text className="text-sky-300">Follow my location</Text></Pressable> : null}
+      {!testing ? <MapPlacesPanel level={level} target={picked ?? position} picked={!!picked}
+        clearPicked={() => setPicked(undefined)} places={places} online={online} disabled={busy}
+        create={createPlace} inspect={inspectPlace} focus={setCamera} /> : null}
+      <Text className="text-xs text-slate-400">Grey: saved paths · Light grey: overlapping recordings · Blue: current walk · Nearby parallel routes may merge within about 6.5 ft.</Text>
       <Text className="text-xs text-slate-400">Map north stays up · Compass turns with your heading · Distances in feet and inches.</Text>
-      <Text className="text-xs text-slate-300">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable · Start a walk to enable phone compass'}</Text>
-      <Text className="text-xs text-slate-300">{position ? testing ? 'Simulated location' : 'Your estimated location · ±' + mapDistance(accuracy ?? 0) + ' · Private' : 'Location unavailable or tracking stopped'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
+      <Text className="text-xs text-slate-300">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable'}</Text>
+      <Text className="text-xs text-slate-300">{position ? testing ? 'Simulated location' : (live.stale ? 'Last known location' : 'Your estimated location') + (accuracy != null ? ' · ±' + mapDistance(accuracy) : ' · Accuracy unknown') + ' · Private' : 'Waiting for location'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
+      {!testing && live.status ? <Text className="text-xs text-amber-200">{live.status}</Text> : null}
+      {!testing ? <Text className="text-xs text-slate-400">Marker follows you while this map is open. It is never shared. Choose your floor manually; GPS cannot identify indoor floors.</Text> : null}
       {pendingShares > 0 ? <Text className="text-xs text-amber-200">{pendingShares} shared path(s) waiting to sync. Retries run while this map is open.</Text> : null}
       {canTest ? <Pressable accessibilityRole="switch" accessibilityState={{ checked: testing, disabled: recording || busy || !!draft }}
-        disabled={recording || busy || !!draft} onPress={toggleTesting} className="self-start rounded bg-zinc-800 p-3">
+        disabled={recording || busy || !!draft || draggingPin} onPress={toggleTesting} className="self-start rounded bg-zinc-800 p-3">
         <Text className="text-white">{testing ? 'Test joystick: on' : 'Test joystick: off'}</Text>
       </Pressable> : null}
       {testing ? <Text className="text-xs text-amber-200">Simulation · Test paths stay in this session. Choose Record walk, then drag the joystick.</Text> : null}
@@ -314,7 +354,7 @@ export default function MapScreen() {
         <Pressable disabled={busy} className="rounded bg-zinc-800 p-3" onPress={() => { stop(); walk.current = undefined; setDraft(undefined); }}><Text className="text-white">Discard walk</Text></Pressable>
       </View> : null}
       {message ? <Text className="text-sm text-slate-200">{message}</Text> : null}
-      <Text className="text-xs text-slate-400">Recording stops when this map leaves the foreground. A shared route contains coordinates, but no name or live location marker.</Text>
+      <Text className="text-xs text-slate-400">Location updates and recording stop when this map leaves the foreground. A shared route contains coordinates, but no name or live location marker.</Text>
     </ScrollView>
     {canTest && testing && recording ? <MapJoystick move={moveTest} interaction={setUsingJoystick} /> : null}
   </SafeAreaView>;
