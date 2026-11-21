@@ -1,149 +1,149 @@
-# Abyss
+# Through The Earth
 
-A community communication and early-warning app for the Hollow, built for **Patriot HackFest Fall 2026** (track: "Life underground").
+**Community early warning and family safety for the people of the Hollow.**
+Built for **Patriot HackFest Fall 2026** · Track: **Life underground** · Repo: *Abyss*
 
-In 2087, two billion people live in the Hollow, a stack of underground levels whose power, air and water systems are failing. The government (the Directorate) controls the network, and its public numbers don't match what residents see. Abyss lets residents see the real conditions on their level, warn each other, and check on family.
+![Through The Earth: a level channel with active hazard warnings, an automatic early warning and resident chat](docs/screenshots/chat.png)
 
-## Features
+## The problem
 
-| Feature | What it does | Track problems |
+It's 2087. Two billion people live in **the Hollow**, a stack of underground levels. The deeper you go, the hotter and darker it gets, and the lower levels lose power first. **The Directorate** controls the air, the network and movement between levels, and its public numbers don't match what residents see.
+
+When the air stops moving or the water turns brown, residents have no trusted way to find out what is really happening on their level, to warn everyone else, or to find their family.
+
+## Our solution
+
+**Through The Earth** is one app that lets residents report what they see, warn each other in seconds, and reach their people. It runs on a phone (Expo) and in a browser. Both connect to a **community relay** that residents run on their own laptop, not on Directorate infrastructure.
+
+It does four things:
+
+1. **See what's really happening.** Residents report conditions on their level. The app turns those reports into charts, temperature readings and automatic early warnings.
+2. **Warn everyone fast.** One button raises an air-cutout or unsafe-water warning that every resident sees. SOS sends a specific emergency; a flooding SOS alerts all three levels at once.
+3. **Find and reach your people.** Level channels, end-to-end encrypted direct messages, one-tap check-ins, and location pings on a shared level map.
+4. **Look after yourself.** A private daily log of sleep, mood, health and meals that never leaves the device.
+
+## Track problems we address
+
+The brief rewards one connected solution that covers several problems. Through The Earth covers ten of them:
+
+| # | Problem | How Through The Earth helps |
 | --- | --- | --- |
-| **Profiles** | Each resident picks a display name and a home level: Upper Level, Middle Level or Lower Levels. | — |
-| **Level channels** | A group chat for each level, showing who lives there and how many are online. | 7 (organizing without the Directorate) |
-| **Direct messages** | One-to-one messages, encrypted end to end, with saved contacts. | 7, 8 |
-| **Check-ins and SOS** | One-tap "I'm okay", "Are you okay?" and "SOS — I need help" messages. | 8 (finding family during blackouts) |
-| **Condition reports** | Residents report air, power, lighting, supplies, visible illness, heat and lung symptoms, plus an optional measured temperature. Results show as charts per level. | 1, 3, 9 |
-| **Automatic warnings** | 2 or more power or airflow reports from a level within 60 minutes create an incident announcement. The most severe answers are posted as warnings in that level's channel. | 1 (warning before power or air fails), 9 |
-| **Temperature bar** | The average temperature residents reported for each level. | 3 (heat in the deep levels) |
-| **Hazard warnings** | A "⚠ Raise warning" button alerts every signed-in resident to an air cutout or bad water on a level, with an optional note on where. Others can confirm it. Each resident's warning lasts 60 minutes unless they renew or clear it. | 1 (air), 4 (bad water) |
-| **Daily log** | A private record of sleep, mood, body health and meals. It stays on the device and is never sent to the relay. | 11, 12 |
+| 1 | Blackouts | Power, airflow and lighting reports. Two or more power or airflow reports within 60 minutes trigger an automatic early warning. Air-cutout warnings. Blackout markers on the level map. |
+| 3 | Heat | Heat reports and measured temperatures, a per-level temperature bar, and an "It's too hot here" SOS. |
+| 4 | Bad water | Unsafe-water warnings that reach every resident, and an "I need water" SOS. |
+| 5 | Flooding | A flooding SOS that posts to all three levels at once. |
+| 7 | Communication without the Directorate | Everything runs through a relay that residents host themselves. Level channels, plus direct messages that the relay can't read. |
+| 8 | Families split up during blackouts | Check-ins ("I'm okay", "Are you okay?", "I need help") that queue until the network returns, an "I'm lost" SOS, a list of who is online, and live or emergency location pings on the level map. |
+| 9 | Lung-sickness outbreaks | Reports of breathing symptoms and visibly ill people, charted per level and raised as alerts. |
+| 10 | Medicine | An "I need medical attention" SOS. |
+| 11 | Sunlight deprivation | The private daily log tracks sleep and mood over time. |
+| 12 | Food | Supply reports, an "I urgently need food" SOS, and meals in the daily log. |
+
+## Feature tour
+
+### See what's really happening
+- **Condition reports (Status tab):** residents answer quick questions about air, power, lighting, supplies, visible illness, heat and lung symptoms, and can add a measured temperature. Results appear as charts for each level.
+- **Automatic alerts:** any answer worse than a question's best option becomes a level alert, marked *elevated*, or *severe* for the worst option. Repeated power or airflow reports trigger an **early warning**.
+- **Temperature bar:** the average reported temperature for the level, on a cool-to-hot scale.
+- **Level map (phone):** residents record walking routes with GPS, and overlapping recordings merge into the most-travelled path. Residents can drop **blackout** and **blocked passage** markers for everyone, or save private places for themselves.
+
+![Status tab: charts of resident condition reports for the Lower Levels](docs/screenshots/status.png)
+
+### Warn everyone fast
+- **⚠ Raise warning:** choose *Air cutout* or *Unsafe water*, pick the level, and optionally say where. Every signed-in resident sees an **Active warnings** banner on every screen, including the map. Others tap **Confirm** to add their voice, and you can **Clear mine** when the danger has passed. Each resident's warning expires after 60 minutes unless they renew it.
+- **SOS:** choose *I need help*, *I'm lost*, *medical*, *too hot*, *food*, *water*, or *flooding*. If you don't choose, the general SOS sends automatically after 5 seconds. A flooding SOS goes to all three levels.
+
+| Raise a warning | Send an SOS |
+| --- | --- |
+| ![The Raise a warning form with Air cutout selected](docs/screenshots/raise-warning.png) | ![The SOS menu with seven emergency types and a 5-second default](docs/screenshots/sos.png) |
+
+### Find and reach your people
+- **Level channels:** a group chat for each level, with live online counts and a list of who is online.
+- **Direct messages:** one-to-one messages encrypted end to end with NaCl, plus saved contacts.
+- **Check-ins:** one tap to send "I'm okay", ask "Are you okay?" or say "I need help". Check-ins wait in a queue and send when the connection comes back.
+- **Location pings (phone):** share your position on the level map once, live as you move, or as an **emergency ping**. Your own position stays private until you choose to ping.
+
+### Look after yourself
+- **Daily log:** record sleep, mood, body health and meals each day, and look back over past days. It is stored only on the device and is never sent to the relay.
+
+### Built for the people who use it
+- **Shared devices:** several residents can keep accounts on one phone or browser and switch between them. Each account keeps its own messages, contacts and daily log.
+- **Readable in the dark:** a high-contrast green terminal theme with monospace text. Alerts stay amber and red so they stand out.
+- **Works on a phone or a laptop:** the browser client has every feature except the map and the list of who is online.
+
+<img src="docs/screenshots/phone.png" alt="The browser client at phone width, showing active warnings" width="300">
+
+## Live demo (about 4 minutes)
+
+You need the relay running, one phone with Expo Go, and the browser client. Setup is [below](#run-it-yourself).
+
+1. **Two residents.** Sign in on the phone as *Ada* and in the browser as *Bea*, both on the **Lower Levels**.
+2. **Talk.** Chat in the Lower Levels channel and open **People online** on the phone.
+3. **Report.** On the **Status** tab, have both residents report airflow and power problems and a temperature. An **early warning** appears, the charts fill in, and the temperature bar moves.
+4. **Warn.** On the phone, tap **⚠ Raise warning**, choose *Air cutout*, and add "east stairwell". It appears in the browser right away. In the browser, tap **Confirm** and the count goes to 2.
+5. **SOS.** In the browser, tap **Send SOS** and choose *Flooding — alert all levels*. Switch channels to show it arrived on every level.
+6. **Find family.** On the phone, open the map and tap **Ping my location**, then choose *Emergency ping*. A second phone on the same level sees it on its map.
+7. **Private by design.** Show the **Daily log**: it is saved on the device and never shared.
 
 ## How it works
 
 ```
- Phone (Expo app) ─┐
-                    ├──► Relay server (laptop, port 3000) ──► broadcasts messages, reports, warnings
- Browser client ───┘
+ Phone app (Expo) ──┐                          ┌─ in memory: chat history, reports,
+                    ├──► Community relay ──────┤   warnings, SOS, location pings
+ Browser client ────┘   (Node.js on a laptop)  └─ saved to disk: profiles, map routes and markers
 ```
 
-All code is in [`PatriotHacks_Chat_Starter_SDK58/patriothacks-chat/`](PatriotHacks_Chat_Starter_SDK58/patriothacks-chat/), an npm-workspaces monorepo:
-
-| Path | Purpose |
+| Part | Built with |
 | --- | --- |
-| `shared/index.ts` | The shared protocol: socket event names, types, input validators, report questions and level names. |
-| `relay/` | Node.js server (Express + Socket.IO). It verifies identities, queues direct messages, runs the level channels, and collects reports and turns them into warnings. |
-| `mobile/` | The phone app: Expo SDK 58, expo-router, NativeWind (Tailwind) and Zustand. |
-| `browser-chat.cjs` | A web version of the app with the same features, served at http://localhost:4173. |
+| Phone app | Expo SDK 58, React Native, expo-router, NativeWind (Tailwind), Zustand, expo-sqlite, expo-location |
+| Browser client | One self-contained file, bundled with esbuild and served at http://localhost:4173 |
+| Relay | Node.js, Express and Socket.IO, with the map stored in SQLite |
+| Shared protocol | A TypeScript package (`shared/`) that defines every event, type and input check, used by all three |
+| Encryption | TweetNaCl: a key pair for each account, challenge-based sign-in, and encrypted direct messages |
 
-**Data and privacy**
-- Each device creates its own encryption keypair on first launch; the public key is the user's identity.
-- Direct messages are encrypted with NaCl, so the relay can't read them.
-- Level channels, reports and hazard warnings are visible to everyone.
-- The relay keeps messages, channel history, reports and hazard warnings in memory, so restarting it clears them. Only profiles are saved, to `relay/profiles.local.json`.
+**Privacy and safety**
+- **No passwords:** an account is a key pair generated on the device. The relay checks that you hold the key before accepting anything from you.
+- **Private messages stay private:** direct messages and check-ins are encrypted on the device, so the relay can't read them.
+- **Public by choice:** channels, reports, warnings and SOS are public to residents on purpose. A map route or marker is shared only when you choose to share it.
+- **Location:** your live position stays on your phone until you ping it. A ping expires 60 seconds after its last update.
+- **Daily log:** it never leaves the device.
+- **Untrusted input:** the relay validates every request before acting on it.
 
-## Requirements
+## Run it yourself
 
-- **Node.js** 22.13+ or 24.3+
-- **Expo Go** on your phone, in a version that supports **SDK 58**. Get it from the App Store or Google Play.
-- The laptop and phone(s) on the **same Wi-Fi network**
-
-## Running the Expo app
+**You need:** Node.js 22.13+ or 24.3+, a phone with **Expo Go** (SDK 58), and the laptop and phone on the **same Wi-Fi**.
 
 Run every command from the code folder:
 
 ```sh
 cd PatriotHacks_Chat_Starter_SDK58/patriothacks-chat
+npm ci --include=dev                  # first time only
 ```
 
-### 1. Install dependencies (first time only)
-
-```sh
-npm ci --include=dev
-```
-
-### 2. Point the app at your laptop (first time only)
-
-Copy the example environment file.
-
-macOS / Linux:
-```sh
-cp mobile/.env.example mobile/.env
-```
-
-Windows (PowerShell):
-```powershell
-Copy-Item mobile\.env.example mobile\.env
-```
-
-Find your laptop's IP address on the Wi-Fi network:
-- **Windows:** run `ipconfig` and look under "Wireless LAN adapter Wi-Fi" for the IPv4 address.
-- **macOS:** run `ipconfig getifaddr en0`.
-
-Then edit `mobile/.env` and put that address in:
-
-```
-EXPO_PUBLIC_RELAY_URL=http://<your-laptop-IP>:3000
-```
-
-### 3. Start the relay server (terminal 1)
-
-```sh
-npm run relay
-```
-
-Leave it running. You should see `Through The Earth relay listening on ...`.
-
-### 4. Start Expo (terminal 2)
-
-```sh
-npm run start -w mobile -- --lan
-```
-
-Expo prints a QR code.
-
-### 5. Open the app on your phone
-
-- **Android:** open Expo Go and scan the QR code.
-- **iPhone:** scan the QR code with the Camera app, then tap the Expo Go prompt.
-
-Create a profile with a name and home level, and you're in. Repeat on a second phone to chat between devices.
+1. **Point the phone app at your laptop (first time only).** Copy `mobile/.env.example` to `mobile/.env`, then set `EXPO_PUBLIC_RELAY_URL=http://<your-laptop-IP>:3000`. To find the IP, run `ipconfig` on Windows (Wi-Fi IPv4 address) or `ipconfig getifaddr en0` on macOS.
+2. **Start the relay** (terminal 1): `npm run relay`. It prints `Through The Earth relay listening on …`.
+3. **Start Expo** (terminal 2): `npm run start -w mobile -- --lan`. On Android, scan the QR code with Expo Go. On iPhone, scan it with the Camera app.
+4. **Start the browser client** (terminal 3): `node browser-chat.cjs`, then open http://localhost:4173. Each browser profile or private window is a separate resident.
 
 ### Troubleshooting
 
 | Problem | Fix |
 | --- | --- |
-| The app says it can't reach the relay | On the phone's browser, open `http://<your-laptop-IP>:3000/health`. You should see `{"ok":true}`. If you don't, the phone can't reach the laptop; see the next rows. |
-| Windows blocks the connection | When Windows Firewall asks about Node.js, allow it on **Private** networks. Make sure your Wi-Fi is set to *Private*, not *Public*, in Windows settings. |
-| Venue or campus Wi-Fi blocks devices from reaching each other | Connect the laptop to your phone's hotspot, put the new IP in `mobile/.env`, and restart Expo. (Expo's `--tunnel` only fixes loading the app, not reaching the relay.) |
-| You changed `mobile/.env` but nothing changed | The URL is fixed when the app is built. Restart Expo with a clean cache: `npm run start -w mobile -- --lan --clear` |
-| Expo Go says the SDK version isn't supported | Update Expo Go to a version that supports SDK 58. |
+| The app can't reach the relay | On the phone's browser, open `http://<your-laptop-IP>:3000/health`. You should see `{"ok":true}`. If you don't, the phone can't reach the laptop; see the next rows. |
+| Windows blocks the connection | When Windows Firewall asks about Node.js, allow it on **Private** networks, and set your Wi-Fi to *Private*. |
+| Venue Wi-Fi blocks devices from reaching each other | Connect the laptop to a phone hotspot, put the new IP in `mobile/.env`, and restart Expo. |
+| A change to `mobile/.env` has no effect | Restart Expo with a clean cache: `npm run start -w mobile -- --lan --clear` |
+| "Unable to resolve module" after pulling | Run `npm ci --include=dev` again, then restart Expo with `--clear`. |
 
-## Running the browser client
+## What's next
 
-With the relay running, open a third terminal in the same folder:
+- **Phone-to-phone mesh:** keep messages and warnings moving when the Directorate cuts the network. The transport layer (`mobile/src/transport.ts`) is already isolated for this.
+- **Anonymous level totals from daily logs:** for example, "40% of the Lower Levels skipped meals today", for food and outbreak planning without exposing anyone's log.
+- **The remaining track problems:** fair rationing (2), crowding (6), surface safety (13), and surface outposts and migration (14).
+- **Stronger security:** forward secrecy, verifying contacts by QR code, and a relay queue that survives restarts.
 
-```sh
-node browser-chat.cjs
-```
+## For developers
 
-Open http://localhost:4173. Each browser profile or private window gets its own identity, so you can open two windows to act as two residents. Tabs in the same window share one identity.
-
-## Demo walkthrough
-
-1. Start the relay, Expo and the browser client.
-2. On a phone and in the browser, create profiles on the **same level** (for example, Lower Levels).
-3. Chat in the level channel and watch the online count update.
-4. Copy one user's public key into the other's contacts and send a direct message, a check-in and an SOS.
-5. From two different users, submit reports with power or airflow problems. A warning appears for that level.
-6. Submit reports with temperatures and watch the level's temperature bar update.
-
-## Development
-
-- `npm run check` type-checks the mobile app and the relay. There are no automated tests, so run it after every change.
-- To add a feature:
-  1. Define the socket events, types and validators in `shared/index.ts`.
-  2. Handle the events in `relay/`, validating all input there.
-  3. Build the UI in **both** `mobile/` and `browser-chat.cjs`.
-- Work on feature branches and open pull requests instead of pushing to `main`.
-
-More detail on the message encryption flow is in [`patriothacks-chat/README.md`](PatriotHacks_Chat_Starter_SDK58/patriothacks-chat/README.md).
+- Code: [`PatriotHacks_Chat_Starter_SDK58/patriothacks-chat/`](PatriotHacks_Chat_Starter_SDK58/patriothacks-chat/), an npm-workspaces monorepo (`shared/`, `relay/`, `mobile/`, `browser-chat.cjs`). Developer notes and the encryption flow are in its [README](PatriotHacks_Chat_Starter_SDK58/patriothacks-chat/README.md).
+- `npm run check` type-checks the phone app and the relay. Run it after every change.
+- New features start in `shared/` (events, types, validators), then go to the relay, then to **both** the phone app and the browser client.
