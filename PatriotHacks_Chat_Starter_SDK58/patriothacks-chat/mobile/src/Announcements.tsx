@@ -1,23 +1,31 @@
+import { residentReportId, useHiddenResidentReports } from './useHiddenResidentReports';
 import ReportCharts from './ReportCharts';
 import term from './terminal-colors.json';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { parseLevelReport, profileLabel, type ChatProfiles, reportQuestions, type LevelReport, type LevelReportView } from '@patriot/protocol';
+import { parseLevelReport, profileLabel, type ChatProfiles, reportQuestions, type LevelReport, type LevelReportView, type Room } from '@patriot/protocol';
 
 type Props = {
+  level: Room;
   online: boolean;
   ownKey: string;
   profiles: ChatProfiles;
   load: (report?: LevelReport) => Promise<LevelReportView>;
 };
 
-export default function Announcements({ online, ownKey, profiles, load }: Props) {
+export default function Announcements({ level, online, ownKey, profiles, load }: Props) {
   const [view, setView] = useState<LevelReportView>();
   const [answers, setAnswers] = useState<LevelReport['answers']>({});
   const [temperature, setTemperature] = useState('');
   const [busy, setBusy] = useState(false);
   const [visibleReports, setVisibleReports] = useState(5);
   const [status, setStatus] = useState('');
+  const personal = useHiddenResidentReports(ownKey);
+  const reportId = (report: LevelReportView['recent'][number]) => residentReportId('report', level, report.reporter, report.submittedAt);
+  const shownReports = view?.recent.filter((report) => !personal.hidden(reportId(report))) ?? [];
+  function dismissReports() {
+    void personal.hideMany(shownReports.map(reportId)).catch((error) => setStatus('Could not hide reports: ' + String(error)));
+  }
 
   useEffect(() => {
     if (!online) return;
@@ -62,16 +70,24 @@ export default function Announcements({ online, ownKey, profiles, load }: Props)
       <View className="gap-2">
         <View className="flex-row flex-wrap items-center justify-between gap-2">
           <Text className="font-mono text-lg font-semibold text-term-text">Submitted reports</Text>
+
           <Pressable accessibilityRole="button" disabled={!online || busy} onPress={() => update(false)}
             className="rounded-sm bg-term-field border border-term-line p-2 disabled:opacity-50">
             <Text className="font-mono text-term-text">Refresh reports</Text>
           </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Clear all current submitted reports for me only"
+            disabled={!ownKey || !shownReports.length} onPress={dismissReports} className="p-3 disabled:opacity-50">
+            <Text className="font-mono text-lg text-term-text">×</Text>
+          </Pressable>
         </View>
-        <Text className="font-mono text-term-muted">Reports are visible with your profile and public chat ID.</Text>
-        {view && view.recent.length === 0 ? <Text className="font-mono text-term-dim">No reports for this level yet.</Text> : null}
-        {view?.recent.slice(0, visibleReports).map((report) => (
+        <Text className="font-mono text-term-muted">Reports are visible with your profile and public chat ID. × hides all current submitted reports only for you on this device; totals stay unchanged.</Text>
+        {view && shownReports.length === 0 ? <Text className="font-mono text-term-dim">No visible reports for this level.</Text> : null}
+        {shownReports.slice(0, visibleReports).map((report) => (
           <View key={report.reporter} className="gap-1 rounded-sm bg-term-field border border-term-line p-3">
-            <Text className="font-mono font-semibold text-term-text">{profiles[report.reporter] ? profileLabel(profiles[report.reporter]) : report.reporter === ownKey ? 'You' : 'Reporter'}</Text>
+            <View className="flex-row items-start justify-between gap-2">
+              <Text className="flex-1 font-mono font-semibold text-term-text">{profiles[report.reporter] ? profileLabel(profiles[report.reporter]) : report.reporter === ownKey ? 'You' : 'Reporter'}</Text>
+
+            </View>
             <Text selectable className="font-mono text-xs text-term-dim">{report.reporter}</Text>
             <Text className="font-mono text-xs text-term-muted">{new Date(report.submittedAt).toLocaleString()}</Text>
             {reportQuestions.map(({ id, label }) => report.answers[id]
@@ -82,7 +98,7 @@ export default function Announcements({ online, ownKey, profiles, load }: Props)
               : null}
           </View>
         ))}
-        {view && view.recent.length > visibleReports ? (
+        {view && shownReports.length > visibleReports ? (
           <Pressable accessibilityRole="button" onPress={() => setVisibleReports((count) => count + 5)}
             className="self-start rounded-sm bg-term-field border border-term-line p-2">
             <Text className="font-mono text-term-text">Show more reports</Text>

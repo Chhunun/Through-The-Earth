@@ -4,7 +4,7 @@ import BlockPassageButton from './BlockPassageButton';
 import DraggableMapPin from './DraggableMapPin';
 import { pointOnMap, stackMapPlaces } from './mapMarkerLayout';
 import * as Crypto from 'expo-crypto';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import type { MapPlace, MapPlaceKind, MapPoint, Room } from '@patriot/protocol';
 
@@ -19,6 +19,7 @@ export function MapPlaceLayer({ places, center, originLatitude, scale, width, he
 }) {
   const [stackIds, setStackIds] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
+  useEffect(() => setSelectedId(undefined), [picked]);
   const longitudeMeters = 111320 * Math.cos(originLatitude * Math.PI / 180);
   if (!center || Math.abs(longitudeMeters) < 1) return null;
   function screen(point: MapPoint) {
@@ -34,9 +35,6 @@ export function MapPlaceLayer({ places, center, originLatitude, scale, width, he
   const stack = places.filter((p) => stackIds.includes(p.id));
   const target = picked ? screen(picked) : undefined;
   return <>
-    <Pressable accessibilityLabel="Map: hold to choose a pin location" delayLongPress={450}
-      onLongPress={({ nativeEvent }) => { setSelectedId(undefined); pick(toPoint(nativeEvent.locationX, nativeEvent.locationY)); }}
-      style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
     {groups.map((group) => {
       const item = group[0];
       if (group.length === 1) return <DraggableMapPin key={item.place.id}
@@ -124,7 +122,7 @@ export function MapPlacesPanel({ level, target, picked, clearPicked, places, onl
       <BlockPassageButton disabled={disabled || saving || !online} {...blockPlacement} />
     </View>
     <Text className="font-mono text-xs text-term-dim">Tap Block passage to publish at your current location, or drag it onto the map. Shared blocks are visible to everyone.</Text>
-    <Text className="font-mono text-xs text-term-muted">Purple: your saved pins · Yellow: reported blackout · Red: blocked passage. Tap a stack to choose a marker. Hold a marker until it highlights, then drag to move it. Tap for details or removal.</Text>
+    <Text className="font-mono text-xs text-term-muted">Purple: your saved pins · Yellow: reported blackout · Red: blocked passage. Tap a stack to choose a marker. Hold a marker until it highlights, then drag to move it. Tap for details, Clear for me, or shared removal.</Text>
     {!online ? <Text className="font-mono text-xs text-amber-200">Shared markers are a cached snapshot and may be outdated. Reconnect to update or remove them.</Text> : null}
     <ScrollView nestedScrollEnabled style={{ maxHeight: 180 }}>
       {places.map((place) => <View key={place.id} className="mb-2 flex-row items-center gap-3">
@@ -146,7 +144,7 @@ export function MapPlacesPanel({ level, target, picked, clearPicked, places, onl
             <Pressable key={choice} onPress={() => setBlackout(choice)} className="rounded bg-term-field border border-term-line p-3">
               <Text className="font-mono text-term-text">{blackout === choice ? '● ' : '○ '}{choice}</Text>
             </Pressable>)}</View> : null}
-          <Text className="font-mono text-sm text-term-dim">{kind === 'personal' ? 'Saved only on this device for your account.' : 'This sends the selected coordinates to everyone on this relay. Anyone can remove the marker.'}</Text>
+          <Text className="font-mono text-sm text-term-dim">{kind === 'personal' ? 'Saved only on this device for your account.' : 'This sends the selected coordinates to everyone on this relay. Residents can hide the marker for themselves, or explicitly remove it for everyone.'}</Text>
           {kind === 'blackout' ? <Text className="font-mono text-xs text-term-muted">Also updates your lighting-blackout answer in Status for this level. Removing this marker does not change that answer.</Text> : null}
           {error ? <Text className="font-mono text-rose-300">{error}</Text> : null}
           <View className="flex-row gap-3">

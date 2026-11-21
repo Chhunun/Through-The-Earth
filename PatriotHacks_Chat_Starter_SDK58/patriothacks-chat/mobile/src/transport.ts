@@ -1,3 +1,4 @@
+import { onlinePeopleEvent, isPublicKey } from '@patriot/protocol';
 import { io } from 'socket.io-client';
 import { events, isEnvelope, incidentEvent, levelPresenceEvent, levelTemperatureEvent, type LevelTemperatures, severeReportsEvent, type LevelPresence, type SevereReports, type IncidentSnapshot, profileEvents, reportEvents, type ChatProfile, type ChatProfiles, roomEvents, type LevelReport, type LevelReportResult, type Room, type RoomMessage, type Ack, type Challenge, type Envelope } from '@patriot/protocol';
 import { warningEvents, type HazardKind, type WarningRequest, type WarningSnapshot } from '@patriot/protocol';
@@ -15,12 +16,14 @@ export function connectRelay(
   onTemperatures: (temperatures: LevelTemperatures) => void,
   onWarnings: (warnings: WarningSnapshot) => void,
   onStatus: (online: boolean, error?: string) => void,
+  onOnlinePeople?: (keys: string[]) => void,
 ) {
   const socket = io(url, { auth: { publicKey: key }, autoConnect: false });
   let authenticated = false;
 
   socket.on('disconnect', () => {
     authenticated = false;
+    onOnlinePeople?.([]);
     onStatus(false);
   });
   socket.on('connect_error', (error) => onStatus(false, error.message));
@@ -58,6 +61,9 @@ export function connectRelay(
     onProfiles({ [key]: profile }, false));
   socket.on(incidentEvent, onIncidents);
   socket.on(levelPresenceEvent, onPresence);
+  socket.on(onlinePeopleEvent, (value: unknown) => {
+    if (Array.isArray(value) && value.every(isPublicKey)) onOnlinePeople?.([...new Set<string>(value)]);
+  });
   socket.on(severeReportsEvent, onSevereReports);
   socket.on(levelTemperatureEvent, onTemperatures);
   socket.on(warningEvents.snapshot, (warnings: unknown) => {

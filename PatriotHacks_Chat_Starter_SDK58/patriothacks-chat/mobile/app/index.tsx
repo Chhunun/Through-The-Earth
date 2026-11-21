@@ -1,3 +1,5 @@
+import ResidentReportAlerts from '../src/ResidentReportAlerts';
+import PeoplePanel from '../src/PeoplePanel';
 import * as Crypto from 'expo-crypto';
 import SosChooser, { type SosRequest } from '../src/SosChooser';
 import { isSosMessage, sosText, type SosType } from '../../shared/sosTypes';
@@ -44,12 +46,14 @@ export default function ChatRoute() {
 
 function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (autoSignIn: boolean) => void }) {
   // Shared state comes from the chat store. The useState calls below hold screen-only state.
-  const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents, presence, severeReports, temperatures, warnings } = useChat();
+  const { key, online, relayError, messages, roomMessages, profiles, profilesReady, pendingCheckIns, incidents, presence, onlinePeople, severeReports, temperatures, warnings } = useChat();
   // Refs keep the connection and list handles across renders without causing a redraw.
   const session = useRef<Awaited<ReturnType<typeof startChat>>>(undefined);
   const chatList = useRef<FlatList<ChatItem>>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(false);
+  const [person, setPerson] = useState<string>();
   const [tab, setTab] = useState<LevelTab>('chat');
   const [editingProfile, setEditingProfile] = useState(false);
   // A room value selects a level. An undefined room means Direct chat.
@@ -102,6 +106,20 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
       setError('');
     }
     setPeer(next);
+  }
+
+  function openDirect(next: string) {
+    if (!isPublicKey(next) || next === key) return;
+    // Never carry a level-chat draft into a private conversation.
+    setDraft('');
+    setError('');
+    chooseContact(next);
+    setRoom(undefined);
+    setTab('chat');
+    setChannelsOpen(false);
+    setPeopleOpen(false);
+    setPerson(undefined);
+    Keyboard.dismiss();
   }
 
   // Send an ordinary message or the preset SOS to the room or selected contact.
@@ -425,6 +443,19 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
               <Pressable accessible={false} className="flex-1" onPress={() => setChannelsOpen(false)} />
             </View>
           </Modal>
+          <View className="flex-row items-center gap-2">
+            <Pressable accessibilityRole="button" onPress={() => setPeopleOpen(true)}
+                       className="self-start rounded-sm border border-term-line px-3 py-2">
+              <Text className="font-mono text-term-text">People online{online && onlinePeople ? ' · ' + onlinePeople.length : ''}</Text>
+            </Pressable>
+            {!room && validPeer ? <Text numberOfLines={1} className="flex-1 font-mono text-term-text">
+              {profiles[recipient]?.name ?? recipient.slice(0, 10) + '…'}
+            </Text> : null}
+          </View>
+          <PeoplePanel visible={peopleOpen || !!person} person={person} select={setPerson}
+                       close={() => { setPeopleOpen(false); setPerson(undefined); }}
+                       ownKey={key} online={online} onlinePeople={onlinePeople} profiles={profiles}
+                       direct={openDirect} />
           {/* Level navigation. This is where a future Map tab would sit alongside Chat and Status. */}
           {room ? <View className="flex-row gap-2">
             {levelTabs.map(([value, label]) => (
@@ -481,32 +512,10 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
         <WarningBanner warnings={warnings} ownKey={key} online={online} homeLevel={profile?.level} busy={warningActions.busy}
                        confirm={warningActions.confirm} clear={warningActions.clear} />
         {/* Resident-report warnings belong above level chat. Keep counts and timestamps readable on small screens. */}
-        {room && tab === 'chat' && severeReports[room]?.length ? (
-          <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-sm border border-rose-500 bg-rose-950 px-3 py-2">
-            <Text className="font-mono font-bold text-rose-100">Severe · Resident reports</Text>
-            {!online ? <Text className="font-mono text-xs text-rose-200">Relay offline · Showing last received warning</Text> : null}
-            <ScrollView style={{ maxHeight: 92 }} nestedScrollEnabled>
-              {severeReports[room].map(({ question, answer, count, latestAt }) => (
-                <Text key={question} className="font-mono mb-1 text-xs text-rose-100">
-                  {question}: {answer} · {count} {count === 1 ? 'report' : 'reports'} · {new Date(latestAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                </Text>
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
-        {room && tab === 'chat' && incidents[room]?.length ? (
-            <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-sm border border-amber-700 bg-amber-950 px-3 py-2">
-              <Text className="font-mono font-semibold text-amber-100">Early warning · Resident reports</Text>
-              {!online ? <Text className="font-mono text-xs text-amber-200">Relay offline · Showing last received warning</Text> : null}
-              {incidents[room].map(({ issue, count, latestAt }) => (
-                  <Text key={issue} className="font-mono text-xs text-amber-100">
-                    {incidentLabels[issue]} · {count} reports in the past {incidentWindowMinutes} min · Latest {new Date(latestAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  </Text>
-              ))}
-            </View>
-        ) : null}
+        {room && tab === 'chat' ? <ResidentReportAlerts owner={key} level={room} online={online}
+          reports={severeReports[room] ?? []} incidents={incidents[room] ?? []} /> : null}
         {/* Status and Daily log render their own components. Switching levels resets Status form state. */}
-        {room && tab === 'status' ? <Announcements key={room} online={online} ownKey={key} profiles={profiles} load={loadReport} />
+        {room && tab === 'status' ? <Announcements key={room} level={room} online={online} ownKey={key} profiles={profiles} load={loadReport} />
           : room && tab === 'log' ? <DailyLog key={key} ownKey={key} /> : <>
           {/* Message-list spacing and empty states. The list scrolls to the bottom when the latest message is SOS. */}
           <FlatList<ChatItem> ref={chatList} className="flex-1"
@@ -521,10 +530,13 @@ function ChatScreen({ autoSignIn, restart }: { autoSignIn: boolean; restart: (au
                                   // POLISH 2: Message bubbles. Change the colors, width, and padding here. Keep SOS visually distinct.
                                   <View className={isSosMessage(item.text) ? 'self-stretch rounded-sm border border-rose-500 bg-rose-950 p-3'
                                       : item.from === key ? 'self-end rounded-sm bg-term-active border border-term-text p-3' : 'self-start rounded-sm bg-term-field border border-term-line p-3'}>
-                                    {profiles[item.from] ? <Text className="font-mono text-xs text-term-text">{profileLabel(profiles[item.from])}</Text>
-                                        : isSosMessage(item.text) || (room && item.from !== key) ? (
-                                            <Text className="font-mono text-xs text-term-dim">{item.from === key ? 'You' : item.from.slice(0, 10) + '…'}</Text>
-                                        ) : null}
+                                    <Pressable accessibilityRole="button" disabled={item.from === key || !isPublicKey(item.from)}
+                                               accessibilityLabel={'View ' + (profiles[item.from]?.name ?? 'resident') + ' and direct message options'}
+                                               onPress={() => setPerson(item.from)} className="py-1">
+                                      <Text className="font-mono text-xs text-term-text">
+                                        {profiles[item.from] ? profileLabel(profiles[item.from]) : item.from === key ? 'You' : item.from.slice(0, 10) + '…'}
+                                      </Text>
+                                    </Pressable>
                                     <Text selectable className={isSosMessage(item.text) ? 'font-mono font-bold text-rose-100' : 'font-mono text-term-text'}>{item.text}</Text>
                                   </View>
                               )} />

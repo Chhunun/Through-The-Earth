@@ -1,3 +1,5 @@
+import { useHiddenMapMarkers } from '../src/useHiddenMapMarkers';
+import MapGestureSurface from '../src/MapGestureSurface';
 import MapPingLayer from '../src/MapPingLayer';
 import MapPingList from '../src/MapPingList';
 import { useMapPings } from '../src/useMapPings';
@@ -28,6 +30,7 @@ import { mapConnection } from '../src/mapConnection';
 import { loadMap, saveMapPath, queueMapShare } from '../src/mapStorage';
 
 export default function MapScreen() {
+  const [gesturingMap, setGesturingMap] = useState(false);
   const [pingPending, setPingPending] = useState(false);
   const ownLevel = useChat((state) => state.profiles[state.key]?.level);
   const deletedPaths = useRef(new Set<string>());
@@ -38,6 +41,7 @@ export default function MapScreen() {
   // Hazard warnings go through the chat screen's relay session, which stays open underneath the map.
   const warnings = useChat((state) => state.warnings);
   const ownKey = useChat((state) => state.key);
+  const hiddenMarkers = useHiddenMapMarkers(ownKey);
   const relayOnline = useChat((state) => state.online);
   const warningActions = useWarningActions();
   const [warningOpen, setWarningOpen] = useState(false);
@@ -116,7 +120,7 @@ export default function MapScreen() {
     let owner: string;
     publicKey().then(async (key) => {
       owner = key;
-      const places = await loadPrivatePlaces(owner);
+        const places = await loadPrivatePlaces(owner);
       if (active.current) setPrivatePlaces(places);
     }).catch(() => { if (active.current) setMessage('Could not load private pins.'); });
     loadSharedPlaces().then((snapshot) => {
@@ -341,9 +345,11 @@ export default function MapScreen() {
     Alert.alert(place.label, (place.kind === 'personal' ? 'Private saved place' : 'Resident-reported ' + (place.kind === 'block' ? 'blocked passage' : 'blackout'))
       + '\n' + place.level + '\n' + new Date(place.createdAt).toLocaleString()
       + (place.blackout ? '\n' + place.blackout : '')
+      + '\nClear for me only hides this marker for your account on this device.'
       + (place.kind === 'blackout' ? '\nRemoving the marker does not change your Status answer.' : ''), [
       { text: 'Close', style: 'cancel' },
-      { text: 'Remove marker', style: 'destructive', onPress: () => {
+      { text: 'Clear for me', onPress: () => { clearMarkers('place', [place.id]); } },
+      { text: place.kind === 'personal' ? 'Delete saved pin' : 'Remove for everyone', style: 'destructive', onPress: () => {
         void (async () => {
           if (place.kind === 'personal') {
             await removePrivatePlace(await publicKey(), place.id);
@@ -357,13 +363,19 @@ export default function MapScreen() {
       } },
     ]);
   }
-  const places = [...privatePlaces, ...sharedPlaces.places].filter((p) => p.level === level);
+  function clearMarkers(kind: 'place' | 'ping', ids: string[]) {
+    void hiddenMarkers.hide(kind, ids).then(() => {
+      if (active.current) setMessage(kind === 'ping' ? 'Pings cleared for you only. Location sharing is unchanged.' : 'Pin cleared for you only.');
+    }).catch((error) => { if (active.current) setMessage('Could not clear markers: ' + String(error)); });
+  }
+  const visiblePings = locationPings.pings.filter((ping) => !hiddenMarkers.hidden('ping', ping.id));
+  const places = [...privatePlaces, ...sharedPlaces.places].filter((p) => p.level === level && !hiddenMarkers.hidden('place', p.id));
   const visible = (testing ? testPaths : paths).filter((path) => path.level === level);
   const tracks = [...visible, ...(draft?.level === level ? [draft] : [])];
   const merged = useMemo(() => mergeWalkPaths(
     (testing ? testPaths : paths).filter((path) => path.level === level),
   ), [testing, testPaths, paths, level]);
-  const center = camera ?? position ?? tracks[0]?.points[0] ?? places[0]?.point ?? locationPings.pings[0]?.point;
+  const center = camera ?? position ?? tracks[0]?.points[0] ?? places[0]?.point ?? visiblePings[0]?.point;
   const originLatitude = merged[0]?.from.latitude ?? draft?.points[0]?.latitude ?? center?.latitude ?? 0;
   const longitudeMeters = 111320 * Math.cos(originLatitude * Math.PI / 180);
   const markerX = center && position ? size.width / 2 + (position.longitude - center.longitude) * longitudeMeters * scale : -100;
@@ -433,7 +445,7 @@ export default function MapScreen() {
   </Pressable>;
 
   return <SafeAreaView ref={rootView} collapsable={false} style={{ flex: 1, backgroundColor: term.bg }}>
-    <ScrollView scrollEnabled={!usingJoystick && !draggingPin} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && canTest ? 170 : 16 }}>
+    <ScrollView scrollEnabled={!usingJoystick && !draggingPin && !gesturingMap} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: testing && canTest ? 170 : 16 }}>
       <Pressable onPress={() => router.back()} accessibilityRole="button"><Text className="font-mono font-semibold text-term-glow">‹ Social network</Text></Pressable>
       <Text accessibilityRole="header" className="font-mono uppercase tracking-widest text-xl font-bold text-term-glow">Level map</Text>
       {/* Warning system. The form starts on the floor shown on the map. */}
@@ -455,10 +467,14 @@ export default function MapScreen() {
         const { width, height } = nativeEvent.layout;
         setSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
       }} style={{ height: 350, overflow: 'hidden', borderWidth: 1, borderColor: term.line, backgroundColor: term.panel }}>
+        <MapGestureSurface center={center} scale={scale} width={size.width} height={size.height}
+          longitudeMeters={longitudeMeters} disabled={draggingPin || usingJoystick || busy}
+          change={(view) => { setCamera(view.center); setScale(view.scale); }} interaction={setGesturingMap}
+          pick={testing ? undefined : setPicked} />
         <MapPathLayer segments={merged} draft={draft?.level === level ? draft : undefined}
           center={center} width={size.width} height={size.height} scale={scale}
           highlight={!testing ? visible.find((path) => path.id === selectedPathId) : undefined} />
-        {position ? <View accessibilityLabel="Your estimated location, visible only to you" style={{ position: 'absolute', left: markerX - 7, top: markerY - 7, height: 14, width: 14, borderRadius: 7, backgroundColor: term.glow, borderWidth: 3, borderColor: !testing && live.stale ? term.muted : term.active }} /> : null}
+        {position ? <View pointerEvents="none" accessibilityLabel="Your estimated location, visible only to you" style={{ position: 'absolute', left: markerX - 7, top: markerY - 7, height: 14, width: 14, borderRadius: 7, backgroundColor: term.glow, borderWidth: 3, borderColor: !testing && live.stale ? term.muted : term.active }} /> : null}
         {position && heading !== undefined ? <View pointerEvents="none" style={{
           position: 'absolute', left: markerX - 14, top: markerY - 14,
           width: 28, height: 28, transform: [{ rotate: heading + 'deg' }],
@@ -470,7 +486,7 @@ export default function MapScreen() {
           scale={scale} width={size.width} height={size.height} picked={picked}
           pick={setPicked} inspect={inspectPlace} move={movePlace} online={online}
           interaction={(value) => { if (value && center) setCamera({ ...center }); setDraggingPin(value); }} /> : null}
-        <MapPingLayer pings={locationPings.pings} center={center} originLatitude={originLatitude}
+        <MapPingLayer pings={visiblePings} center={center} originLatitude={originLatitude}
           scale={scale} width={size.width} height={size.height} />
         <MapControls width={size.width} scale={scale} zoom={setScale} heading={heading} />
       </View>
@@ -484,7 +500,9 @@ export default function MapScreen() {
           finish: finishBlockPlacement,
           cancel: () => { dropFrame.current = undefined; setBlockGhost(undefined); setDraggingPin(false); },
         }} /> : null}
-      <MapPingList pings={locationPings.pings} ownKey={ownKey} pending={pingPending} focus={setCamera}
+      <MapPingList clear={(id) => clearMarkers('ping', [id])}
+        clearAll={() => clearMarkers('ping', visiblePings.filter((ping) => ping.expiresAt > Date.now()).map((ping) => ping.id))}
+        pings={visiblePings} ownKey={ownKey} pending={pingPending} focus={setCamera}
         stop={() => { void locationPings.stop().then(() => setMessage('Your ping was removed.')).catch((error) => setMessage(String(error))); }} />
       {!testing ? <Text className="font-mono text-xs text-term-muted">Cyan ripple: shared position · Red ripple: emergency location · Live pings follow the sender; stale pings disappear after 60 seconds without updates.</Text> : null}
       {locationPings.error ? <Text className="font-mono text-xs text-amber-200">{locationPings.error}</Text> : null}
@@ -493,7 +511,7 @@ export default function MapScreen() {
         select={(path) => { setSelectedPathId(path.id); setCamera(path.points[0]); }}
         remove={removeSharedWalk} share={shareSavedWalk} /> : null}
       <Text className="font-mono text-xs text-term-muted">Dim green: saved paths · Green: overlapping recordings · Bright: current walk · Amber: selected walk · Nearby parallel routes may merge within about 6.5 ft.</Text>
-      <Text className="font-mono text-xs text-term-muted">Map north stays up · Compass turns with your heading · Distances in feet and inches.</Text>
+      <Text className="font-mono text-xs text-term-muted">Swipe to explore · Pinch to zoom · Map north stays up · Distances in feet and inches.</Text>
       <Text className="font-mono text-xs text-term-dim">{heading !== undefined ? headingSource + ' · ' + Math.round(heading) + '°' : 'Heading unavailable'}</Text>
       <Text className="font-mono text-xs text-term-dim">{position ? testing ? 'Simulated location' : (live.stale ? 'Last known location' : 'Your estimated location') + (accuracy != null ? ' · ±' + mapDistance(accuracy) : ' · Accuracy unknown') + (locationPings.sharing ? ' · Sharing live' : ' · Private') : 'Waiting for location'} · {online ? 'Relay connected' : 'Offline map cache'}</Text>
       {!testing && live.status ? <Text className="font-mono text-xs text-amber-200">{live.status}</Text> : null}

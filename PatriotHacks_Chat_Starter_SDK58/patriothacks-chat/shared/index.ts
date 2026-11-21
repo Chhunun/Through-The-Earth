@@ -229,7 +229,9 @@ export const levelPresenceEvent = 'level:presence';
 export type LevelPresence = Record<Room, number>;
 
 export const severeReportsEvent = 'report:severe';
+// Includes every report choice above the least severe option.
 export interface SevereReportSummary {
+  severity?: 'severe' | 'elevated';
   question: string;
   answer: string;
   count: number;
@@ -248,7 +250,7 @@ export type LevelTemperatures = Record<Room, LevelTemperature>;
 // Each resident's warning stays active for warningActiveMinutes unless they raise it again or clear it.
 export const hazardLabels = {
   air: 'Air cutout',
-  water: 'Bad water',
+  water: 'Unsafe water',
 } as const;
 export type HazardKind = keyof typeof hazardLabels;
 export const hazardKinds = Object.keys(hazardLabels) as HazardKind[];
@@ -349,3 +351,6 @@ export function isMapPathState(value: unknown): value is MapPathState {
     && Array.isArray(s.deletedIds) && s.deletedIds.length <= 10000
     && s.deletedIds.every((id) => typeof id === 'string' && /^[0-9a-f-]{36}$/.test(id));
 }
+
+// Authenticated accounts with a saved profile; one entry per public key.
+export const onlinePeopleEvent = 'people:online';

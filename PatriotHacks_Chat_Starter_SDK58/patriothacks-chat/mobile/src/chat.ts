@@ -13,6 +13,7 @@ type ChatState = {
   online: boolean;
   incidents: Partial<IncidentSnapshot>;
   presence?: LevelPresence;
+  onlinePeople?: string[];
   severeReports: Partial<SevereReports>;
   temperatures: Partial<LevelTemperatures>;
   warnings: WarningSnapshot;
@@ -21,7 +22,7 @@ type ChatState = {
   pendingCheckIns: Envelope[];
   roomMessages: Partial<Record<Room, RoomMessage[]>>;
 };
-const initialState: ChatState = { key: '', profiles: {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, temperatures: {}, warnings: [], relayError: '', messages: [], pendingCheckIns: [], roomMessages: {} };
+const initialState: ChatState = { key: '', profiles: {}, profilesReady: false, online: false, incidents: {}, presence: undefined, onlinePeople: undefined, severeReports: {}, temperatures: {}, warnings: [], relayError: '', messages: [], pendingCheckIns: [], roomMessages: {} };
 export const useChat = create<ChatState>(() => initialState);
 
 async function display(envelope: Envelope) {
@@ -115,7 +116,7 @@ export async function startChat(isActive: () => boolean) {
   }
   const [pendingCheckIns, cachedProfile] = await Promise.all([queuedCheckIns(key), cachedProfiles().then((all) => all[key])]);
   if (!isActive()) return;
-  useChat.setState({ key, messages, pendingCheckIns, profiles: cachedProfile ? { [key]: cachedProfile } : {}, profilesReady: false, online: false, incidents: {}, presence: undefined, severeReports: {}, temperatures: {}, warnings: [], relayError: '' });
+  useChat.setState({ key, messages, pendingCheckIns, profiles: cachedProfile ? { [key]: cachedProfile } : {}, profilesReady: false, online: false, incidents: {}, presence: undefined, onlinePeople: undefined, severeReports: {}, temperatures: {}, warnings: [], relayError: '' });
   const url = process.env.EXPO_PUBLIC_RELAY_URL;
   if (!url) {
     useChat.setState({ relayError: 'Set EXPO_PUBLIC_RELAY_URL in mobile/.env' });
@@ -135,10 +136,11 @@ export async function startChat(isActive: () => boolean) {
     (temperatures) => useChat.setState({ temperatures }),
     (warnings) => useChat.setState({ warnings }),
     (online, error) => {
-      if (!online) useChat.setState({ presence: undefined });
+      if (!online) useChat.setState({ presence: undefined, onlinePeople: undefined });
       useChat.setState({ online, relayError: error ?? '' });
       if (online) void flushCheckIns();
-    });
+    },
+    (onlinePeople) => { if (isActive()) useChat.setState({ onlinePeople }); });
   liveRelay = relay;
   let flushing = false;
 

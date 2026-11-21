@@ -6,8 +6,69 @@ import {
 } from '@patriot/protocol';
 import { clearWarning, raiseWarning } from './chat';
 import term from './terminal-colors.json';
+import Storage from 'expo-sqlite/kv-store';
 
 const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+// Local dismissals never send a clear request to the relay. Each account has its
+// own saved set, shared by the map and chat banners on this device.
+const hiddenByOwner = new Map<string, Set<string>>();
+const loadingByOwner = new Map<string, Promise<void>>();
+const dismissalListeners = new Set<() => void>();
+const notifyDismissals = () => dismissalListeners.forEach((listener) => listener());
+const storageKey = (owner: string) => 'patriot:warning-dismissals:v1:' + owner;
+const warningVersion = (warning: HazardWarning) => JSON.stringify([
+  warning.level, warning.kind, warning.latestAt, warning.note ?? '',
+  [...warning.reporters].sort(),
+]);
+function readDismissals(value: string | null): string[] {
+  if (!value) return [];
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string')) {
+    throw new Error('Saved warning dismissals could not be read.');
+  }
+  return parsed;
+}
+function loadDismissals(owner: string): Promise<void> {
+  if (hiddenByOwner.has(owner)) return Promise.resolve();
+  const pending = loadingByOwner.get(owner);
+  if (pending) return pending;
+  const loading = Storage.getItemAsync(storageKey(owner)).then((value) => {
+    hiddenByOwner.set(owner, new Set(readDismissals(value)));
+    notifyDismissals();
+  }).finally(() => { loadingByOwner.delete(owner); });
+  loadingByOwner.set(owner, loading);
+  return loading;
+}
+function usePersonalWarnings(owner: string) {
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    const refresh = () => redraw((value) => value + 1);
+    dismissalListeners.add(refresh);
+    // Keep warnings visible if storage is unavailable. A dismissal reports the
+    // storage error instead of silently claiming it was saved.
+    if (owner) void loadDismissals(owner).catch(() => {});
+    return () => { dismissalListeners.delete(refresh); };
+  }, [owner]);
+  async function dismiss(warning: HazardWarning) {
+    if (!owner) return;
+    try {
+      await loadDismissals(owner);
+      const version = warningVersion(warning);
+      await Storage.setItemAsync(storageKey(owner), (previous) =>
+        JSON.stringify([...new Set([...readDismissals(previous), version])]),
+      );
+      hiddenByOwner.get(owner)!.add(version);
+      notifyDismissals();
+    } catch (cause) {
+      Alert.alert('Warning not hidden', cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+  return {
+    visible: (warning: HazardWarning) => !hiddenByOwner.get(owner)?.has(warningVersion(warning)),
+    dismiss,
+  };
+}
 
 // Warning actions for any screen. They go through the chat screen's open relay session.
 // Confirm adds your report to someone else's warning; Clear mine withdraws only yours.
@@ -58,14 +119,16 @@ type BannerProps = {
 
 // Active hazard warnings for every level. Shown on every signed-in screen.
 // Warnings stay amber (air cutouts in rose) like the other alerts, so they never blend into the green theme.
-export function WarningBanner({ warnings, ownKey, online, homeLevel, confirm, clear, busy }: BannerProps) {
-  if (!warnings.length) return null;
+export function WarningBanner({ warnings, ownKey, online, homeLevel, confirm, busy }: BannerProps) {
+  const personal = usePersonalWarnings(ownKey);
+  const visibleWarnings = warnings.filter(personal.visible);
+  if (!visibleWarnings.length) return null;
   return (
     <View accessibilityLiveRegion="polite" className="mx-3 mt-2 gap-1 rounded-sm border border-amber-500 bg-amber-950 px-3 py-2">
       <Text accessibilityRole="header" className="font-mono uppercase tracking-widest font-bold text-amber-100">⚠ Active warnings</Text>
       {!online ? <Text className="font-mono text-xs text-amber-200">Relay offline · Showing last received warnings</Text> : null}
       <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
-        {warnings.map((warning) => {
+        {visibleWarnings.map((warning) => {
           const mine = warning.reporters.includes(ownKey);
           const count = warning.reporters.length;
           const label = hazardLabels[warning.kind];
@@ -80,14 +143,22 @@ export function WarningBanner({ warnings, ownKey, online, homeLevel, confirm, cl
                 {count} {count === 1 ? 'resident' : 'residents'}{mine ? ', including you' : ''} · latest {time(warning.latestAt)}
               </Text>
               {warning.note ? <Text className="font-mono text-xs text-amber-100">“{warning.note}”</Text> : null}
-              {confirm && clear ? (
-                <Pressable accessibilityRole="button" disabled={busy || !online}
-                           accessibilityLabel={(mine ? 'Clear your ' : 'Confirm the ') + label + ' warning for ' + warning.level}
-                           className="mt-1 self-start rounded-sm border border-amber-500 px-2 py-1 disabled:opacity-50"
-                           onPress={() => (mine ? clear : confirm)(warning)}>
-                  <Text className="font-mono text-xs font-semibold text-amber-100">{mine ? 'Clear mine' : 'Confirm'}</Text>
+              <View className="mt-1 flex-row flex-wrap gap-2">
+                {confirm && !mine ? (
+                  <Pressable accessibilityRole="button" disabled={busy || !online}
+                             accessibilityLabel={'Confirm the ' + label + ' warning for ' + warning.level}
+                             className="self-start rounded-sm border border-amber-500 px-2 py-1 disabled:opacity-50"
+                             onPress={() => confirm(warning)}>
+                    <Text className="font-mono text-xs font-semibold text-amber-100">Confirm</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable accessibilityRole="button" disabled={!ownKey}
+                           accessibilityLabel={'Clear ' + label + ' warning for me only on ' + warning.level}
+                           className="self-start rounded-sm border border-amber-500 px-2 py-1 disabled:opacity-50"
+                           onPress={() => { void personal.dismiss(warning); }}>
+                  <Text className="font-mono text-xs font-semibold text-amber-100">Clear for me</Text>
                 </Pressable>
-              ) : null}
+              </View>
             </View>
           );
         })}
@@ -147,7 +218,7 @@ export function RaiseWarningModal({ visible, online, defaultLevel, submit, close
         <View accessibilityViewIsModal className="gap-3 rounded border border-amber-500 bg-term-panel p-5">
           <Text accessibilityRole="header" className="font-mono uppercase tracking-widest text-lg font-bold text-amber-100">⚠ Raise a warning</Text>
           <Text className="font-mono text-xs text-term-dim">
-            Every signed-in resident sees it, labelled with the level. It lasts {warningActiveMinutes} minutes unless you clear it or raise it again.
+            Every signed-in resident sees it, labelled with the level. It lasts {warningActiveMinutes} minutes; new reports renew it. Clear for me only hides it on your device.
           </Text>
           <Text className="font-mono font-semibold text-term-text">What’s happening?</Text>
           <View className="flex-row flex-wrap gap-2">

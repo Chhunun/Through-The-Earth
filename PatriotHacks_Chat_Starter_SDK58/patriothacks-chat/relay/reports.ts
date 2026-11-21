@@ -102,16 +102,19 @@ export function severeReports(now = Date.now()): SevereReports {
   const snapshot: SevereReports = { 'Upper Level': [], 'Middle Level': [], 'Lower Levels': [] };
   for (const room of rooms) {
     for (const { id, label, choices } of reportQuestions) {
-      // The final choice in every report question is its highest severity.
-      const answer = choices[choices.length - 1];
-      let count = 0;
-      let latestAt = 0;
-      for (const report of reports.get(room)?.values() ?? []) {
-        if (report.submittedAt <= cutoff || report.submittedAt > now || report.answers[id] !== answer) continue;
-        count++;
-        latestAt = Math.max(latestAt, report.submittedAt);
+      // Keep the existing event for compatibility. Every non-baseline choice
+      // gets its own count; unanswered and the least severe choice are excluded.
+      for (const answer of choices.slice(1)) {
+        let count = 0;
+        let latestAt = 0;
+        for (const report of reports.get(room)?.values() ?? []) {
+          if (report.submittedAt <= cutoff || report.submittedAt > now || report.answers[id] !== answer) continue;
+          count++;
+          latestAt = Math.max(latestAt, report.submittedAt);
+        }
+        if (count) snapshot[room].push({ question: label, answer, count, latestAt,
+          severity: answer === choices[choices.length - 1] ? 'severe' : 'elevated' });
       }
-      if (count) snapshot[room].push({ question: label, answer, count, latestAt });
     }
     snapshot[room].sort((a, b) => b.latestAt - a.latestAt);
   }

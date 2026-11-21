@@ -1,3 +1,4 @@
+import { onlinePeopleEvent } from '@patriot/protocol';
 import type { MapPathState } from '@patriot/protocol';
 import { mapPlaceEvents, isMapPlace, isMapPoint, type MapPlaceSnapshot } from '@patriot/protocol';
 import { readMap, storeMapPath, readMapPathState, removeMapPath, readMapPlaces, storeMapPlace, removeMapPlace, moveMapPlace } from './mapStore.js';
@@ -39,6 +40,7 @@ function publishPresence() {
     if (level) counts[level]++;
   }
   io.to('room-readers').emit(levelPresenceEvent, counts);
+  io.to('room-readers').emit(onlinePeopleEvent, [...activeAccounts.keys()].filter((key) => !!profiles[key]));
 }
 
 import { registerMapPings } from './mapPings.js';
