@@ -3,8 +3,6 @@
 **Community early warning and family safety for the people of the Hollow.**
 Built for **Patriot HackFest Fall 2026** · Track: **Life underground** · Repo: *Abyss*
 
-![Through The Earth: a level channel with active hazard warnings, an automatic early warning and resident chat](docs/screenshots/chat.png)
-
 ## The problem
 
 It's 2087. Two billion people live in **the Hollow**, a stack of underground levels. The deeper you go, the hotter and darker it gets, and the lower levels lose power first. **The Directorate** controls the air, the network and movement between levels, and its public numbers don't match what residents see.
@@ -47,15 +45,9 @@ The brief rewards one connected solution that covers several problems. Through T
 - **Temperature bar:** the average reported temperature for the level, on a cool-to-hot scale.
 - **Level map (phone):** residents record walking routes with GPS, and overlapping recordings merge into the most-travelled path. Residents can drop **blackout** and **blocked passage** markers for everyone, or save private places for themselves.
 
-![Status tab: charts of resident condition reports for the Lower Levels](docs/screenshots/status.png)
-
 ### Warn everyone fast
 - **⚠ Raise warning:** choose *Air cutout* or *Unsafe water*, pick the level, and optionally say where. Every signed-in resident sees an **Active warnings** banner on every screen, including the map. Others tap **Confirm** to add their voice, and you can **Clear mine** when the danger has passed. Each resident's warning expires after 60 minutes unless they renew it.
 - **SOS:** choose *I need help*, *I'm lost*, *medical*, *too hot*, *food*, *water*, or *flooding*. If you don't choose, the general SOS sends automatically after 5 seconds. A flooding SOS goes to all three levels.
-
-| Raise a warning | Send an SOS |
-| --- | --- |
-| ![The Raise a warning form with Air cutout selected](docs/screenshots/raise-warning.png) | ![The SOS menu with seven emergency types and a 5-second default](docs/screenshots/sos.png) |
 
 ### Find and reach your people
 - **Level channels:** a group chat for each level, with live online counts and a list of who is online.
@@ -70,20 +62,6 @@ The brief rewards one connected solution that covers several problems. Through T
 - **Shared devices:** several residents can keep accounts on one phone or browser and switch between them. Each account keeps its own messages, contacts and daily log.
 - **Readable in the dark:** a high-contrast green terminal theme with monospace text. Alerts stay amber and red so they stand out.
 - **Works on a phone or a laptop:** the browser client has every feature except the map and the list of who is online.
-
-<img src="docs/screenshots/phone.png" alt="The browser client at phone width, showing active warnings" width="300">
-
-## Live demo (about 4 minutes)
-
-You need the relay running, one phone with Expo Go, and the browser client. Setup is [below](#run-it-yourself).
-
-1. **Two residents.** Sign in on the phone as *Ada* and in the browser as *Bea*, both on the **Lower Levels**.
-2. **Talk.** Chat in the Lower Levels channel and open **People online** on the phone.
-3. **Report.** On the **Status** tab, have both residents report airflow and power problems and a temperature. An **early warning** appears, the charts fill in, and the temperature bar moves.
-4. **Warn.** On the phone, tap **⚠ Raise warning**, choose *Air cutout*, and add "east stairwell". It appears in the browser right away. In the browser, tap **Confirm** and the count goes to 2.
-5. **SOS.** In the browser, tap **Send SOS** and choose *Flooding — alert all levels*. Switch channels to show it arrived on every level.
-6. **Find family.** On the phone, open the map and tap **Ping my location**, then choose *Emergency ping*. A second phone on the same level sees it on its map.
-7. **Private by design.** Show the **Daily log**: it is saved on the device and never shared.
 
 ## How it works
 
